@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lumo AI Trading Platform - Production Quantitative Crypto Suite</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navigation Header -->
+        <header class="navbar">
+            <div class="brand">
+                <div class="logo-icon">
+                    <i class="fa-solid fa-robot"></i>
+                </div>
+                <div class="brand-text">
+                    <h1>LUMO <span>AI TRADING PLATFORM</span></h1>
+                    <p class="tagline">Enterprise Quantitative Engine • Real-Time WebSockets</p>
+                </div>
+            </div>
+
+            <div class="header-controls">
+                <div class="ws-latency-badge" id="wsLatencyBadge">
+                    <span class="pulse-dot green" id="wsDot"></span>
+                    <span id="wsStatusText">WS Live (< 50ms)</span>
+                </div>
+
+                <div class="strategy-dropdown">
+                    <label><i class="fa-solid fa-chess-knight"></i> Strategy:</label>
+                    <select id="strategySelect">
+                        <option value="AI Hybrid" selected>AI Hybrid</option>
+                        <option value="Trend Following">Trend Following</option>
+                        <option value="Breakout">Breakout</option>
+                        <option value="Scalping">Scalping</option>
+                        <option value="Grid">Grid</option>
+                        <option value="DCA">DCA</option>
+                        <option value="Swing">Swing</option>
+                    </select>
+                </div>
+
+                <button class="btn btn-toggle" id="toggleBotBtn">
+                    <i class="fa-solid fa-power-off"></i> Auto-Bot: OFF
+                </button>
+            </div>
+        </header>
+
+        <!-- Accounting Audit Status Bar -->
+        <section class="accounting-audit-bar glass" style="display: flex; gap: 20px; align-items: center; padding: 10px 20px; margin-bottom: 15px; border-radius: 12px; font-size: 13px; background: rgba(15, 23, 42, 0.6);">
+            <div><i class="fa-solid fa-shield-halved" style="color: var(--accent-cyan);"></i> Accounting Audit: <span class="badge bullish" id="accountingStatusBadge">PASS (0.01 USDT Tol)</span></div>
+            <div><i class="fa-solid fa-database" style="color: var(--accent-blue);"></i> DB Sync: <span class="badge neutral" id="dbSyncStatusBadge">SYNCED</span></div>
+            <div style="color: var(--text-secondary);"><i class="fa-solid fa-clock"></i> Last Validation: <span id="lastValidationText" style="color: var(--text-primary); font-weight: 500;">-</span></div>
+        </section>
+
+        <!-- Main Metric Overview Bar -->
+        <section class="metrics-grid">
+            <div class="metric-card glass">
+                <div class="metric-icon blue"><i class="fa-solid fa-wallet"></i></div>
+                <div class="metric-info">
+
+                    <span class="metric-label">Total Portfolio Value</span>
+                    <h3 class="metric-value" id="valPortfolio">$10,000.00</h3>
+                    <span class="metric-sub" id="valAvailableUsdt">Avail: $10,000.00 | Margin: $0.00</span>
+                </div>
+            </div>
+
+            <div class="metric-card glass">
+                <div class="metric-icon green" id="pnlIconBox"><i class="fa-solid fa-chart-line"></i></div>
+                <div class="metric-info">
+                    <span class="metric-label">Total / Daily PnL</span>
+                    <h3 class="metric-value" id="valTotalPnl">+$0.00 (0.0%)</h3>
+                    <span class="metric-sub" id="valDailyPnl">Daily: +$0.00 (0.0%)</span>
+                </div>
+            </div>
+
+            <div class="metric-card glass">
+                <div class="metric-icon purple"><i class="fa-solid fa-brain"></i></div>
+                <div class="metric-info">
+                    <span class="metric-label">Fear & Greed Index</span>
+                    <h3 class="metric-value" id="valFearGreedScore">55 <span class="badge neutral" id="valFearGreedLabel">Greed</span></h3>
+                    <span class="metric-sub">Live Alternative.me Stream</span>
+                </div>
+            </div>
+
+            <div class="metric-card glass">
+                <div class="metric-icon cyan"><i class="fa-solid fa-newspaper"></i></div>
+                <div class="metric-info">
+                    <span class="metric-label">News Sentiment Score</span>
+                    <h3 class="metric-value" id="valNewsScore">68.5 <span class="badge bullish" id="valNewsLabel">Bullish</span></h3>
+                    <span class="metric-sub" id="valWinRate">Win Rate: 0.0% (0 Trades)</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Timeframe & Chart Controls Bar -->
+        <section class="chart-controls-bar glass">
+            <div class="pair-picker">
+                <label><i class="fa-solid fa-coins"></i> Pair:</label>
+                <select id="symbolSelect">
+                    <option value="BTC/USDT">BTC / USDT</option>
+                    <option value="ETH/USDT">ETH / USDT</option>
+                    <option value="SOL/USDT">SOL / USDT</option>
+                    <option value="BNB/USDT">BNB / USDT</option>
+                    <option value="XRP/USDT">XRP / USDT</option>
+                    <option value="ADA/USDT">ADA / USDT</option>
+                    <option value="DOGE/USDT">DOGE / USDT</option>
+                    <option value="AVAX/USDT">AVAX / USDT</option>
+                    <option value="LINK/USDT">LINK / USDT</option>
+                    <option value="ARB/USDT">ARB / USDT</option>
+                    <option value="SUI/USDT">SUI / USDT</option>
+                    <option value="INJ/USDT">INJ / USDT</option>
+                    <option value="TIA/USDT">TIA / USDT</option>
+                    <option value="FET/USDT">FET / USDT</option>
+                </select>
+                <span class="ticker-live-price" id="liveTickerPrice">$65,000.00</span>
+            </div>
+
+            <div class="timeframe-buttons">
+                <button class="tf-btn" data-tf="1m">1m</button>
+                <button class="tf-btn" data-tf="5m">5m</button>
+                <button class="tf-btn" data-tf="15m">15m</button>
+                <button class="tf-btn active" data-tf="1h">1H</button>
+                <button class="tf-btn" data-tf="4h">4H</button>
+                <button class="tf-btn" data-tf="1d">1D</button>
+            </div>
+
+            <div class="indicator-toggles">
+                <label><input type="checkbox" id="toggleSMA" checked> SMA 20</label>
+                <label><input type="checkbox" id="toggleEMA" checked> EMA 9</label>
+                <label><input type="checkbox" id="toggleRSI"> RSI</label>
+                <label><input type="checkbox" id="toggleVWAP"> VWAP</label>
+            </div>
+        </section>
+
+        <!-- Main Dashboard Content Grid -->
+        <main class="dashboard-grid">
+            <!-- Left Column: Chart & Active Positions -->
+            <div class="grid-main-left">
+                <!-- Interactive Price Chart -->
+                <div class="chart-card glass">
+                    <canvas id="marketChart"></canvas>
+                </div>
+
+                <!-- Live PnL & Equity History Chart -->
+                <div class="chart-card glass" style="margin-top: 15px; height: 260px;">
+                    <div class="card-header" style="margin-bottom: 5px;">
+                        <h3 style="font-size: 14px;"><i class="fa-solid fa-chart-area"></i> Live PnL & Equity History</h3>
+                    </div>
+                    <div style="height: 190px;">
+                        <canvas id="pnlChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Custom Manual Order Execution Panel -->
+                <div class="order-panel glass">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-sliders"></i> Order & Position Entry Panel</h3>
+                        <span class="badge" id="riskModeBadge">Moderate Risk</span>
+                    </div>
+                    <div class="order-form-grid">
+                        <div class="form-group">
+                            <label>Order Type</label>
+                            <select id="orderTypeSelect">
+                                <option value="MARKET" selected>MARKET</option>
+                                <option value="LIMIT">LIMIT</option>
+                                <option value="STOP">STOP</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Amount (USDT)</label>
+                            <input type="number" id="orderAmountUsdt" value="1000" min="10" step="50">
+                        </div>
+                        <div class="form-group">
+                            <label>Leverage (<span id="lblLeverage">1x</span>)</label>
+                            <input type="range" id="orderLeverage" min="1" max="20" value="1">
+                        </div>
+                        <div class="form-group">
+                            <label>Stop-Loss %</label>
+                            <input type="number" id="orderStopLossPct" value="2.5" step="0.5">
+                        </div>
+                        <div class="form-group">
+                            <label>Take-Profit %</label>
+                            <input type="number" id="orderTakeProfitPct" value="5.0" step="0.5">
+                        </div>
+                        <div class="form-group action-group">
+                            <button class="btn btn-buy" id="btnOrderLong"><i class="fa-solid fa-arrow-trend-up"></i> LONG (Buy)</button>
+                            <button class="btn btn-sell" id="btnOrderShort"><i class="fa-solid fa-arrow-trend-down"></i> SHORT (Sell)</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Active Positions Table -->
+                <div class="positions-card glass">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-layer-group"></i> Active Positions (LONG & SHORT)</h3>
+                        <span class="position-count" id="activePositionCount">0 Open</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Symbol</th>
+                                    <th>Side</th>
+                                    <th>Leverage</th>
+                                    <th>Entry</th>
+                                    <th>Current</th>
+                                    <th>Margin</th>
+                                    <th>Unrealized PnL</th>
+                                    <th>SL / TP / Liq</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="positionsTableBody">
+                                <tr>
+                                    <td colspan="9" class="empty-state">No open positions. Use manual panel or enable Auto-Bot.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Trade History Table -->
+                <div class="positions-card glass" style="margin-top: 15px;">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-clock-rotate-left"></i> Trade History (Executed Orders)</h3>
+                        <span class="position-count" id="tradeHistoryCount">0 Trades</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID / Symbol</th>
+                                    <th>Side</th>
+                                    <th>Entry Price</th>
+                                    <th>Exit Price</th>
+                                    <th>Amount</th>
+                                    <th>Margin</th>
+                                    <th>PnL ($)</th>
+                                    <th>PnL (%)</th>
+                                    <th>Status / Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tradeHistoryTableBody">
+                                <tr>
+                                    <td colspan="9" class="empty-state">No trade records available.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Wallet Transaction Ledger Table -->
+                <div class="positions-card glass" style="margin-top: 15px;">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-book-bookmark"></i> Wallet Ledger (Double-Entry Log)</h3>
+                        <span class="position-count" id="ledgerCount">0 Entries</span>
+                    </div>
+                    <div class="table-responsive" style="max-height: 250px; overflow-y: auto;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Tx ID</th>
+                                    <th>Timestamp</th>
+                                    <th>Type</th>
+                                    <th>Amount</th>
+                                    <th>Balance After</th>
+                                    <th>Ref / Description</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ledgerTableBody">
+                                <tr>
+                                    <td colspan="6" class="empty-state">No transaction records available.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+
+            </div>
+
+            <!-- Right Column: AI Signal, Multi-Symbol Scanner & Live News -->
+            <div class="grid-main-right">
+                <!-- AI Signal Card -->
+                <div class="ai-signal-card glass">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-bolt"></i> AI Strategy Signal</h3>
+                        <span class="badge" id="aiSignalBadge">HOLD</span>
+                    </div>
+
+                    <div class="signal-gauge-container">
+                        <div class="confidence-circle">
+                            <div class="circle-inner">
+                                <span class="confidence-val" id="aiConfidenceVal">75%</span>
+                                <span class="confidence-lbl">CONFIDENCE</span>
+                            </div>
+                        </div>
+
+                        <div class="signal-action-box">
+                            <span class="action-title" id="aiActionTitle">HOLD / WAIT</span>
+                            <span class="action-sub" id="aiTargetRange">SL: $0.00 | TP: $0.00</span>
+                        </div>
+                    </div>
+
+                    <div class="ai-reasoning-box">
+                        <h4><i class="fa-solid fa-comment-dots"></i> AI Reasoning Breakdown</h4>
+                        <p id="aiReasoningText">Scanning market momentum, VWAP trend, and live news sentiment stream...</p>
+                    </div>
+                </div>
+
+                <!-- Multi-Symbol Live Scanner -->
+                <div class="scanner-card glass">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-magnifying-glass-chart"></i> Multi-Symbol Scanner (14 Pairs)</h3>
+                    </div>
+                    <div class="table-responsive scanner-table-wrap">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Pair</th>
+                                    <th>Price</th>
+                                    <th>AI Signal</th>
+                                    <th>Conf %</th>
+                                </tr>
+                            </thead>
+                            <tbody id="scannerTableBody">
+                                <tr><td colspan="4" class="empty-state">Scanning pairs...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Live Crypto News Stream -->
+                <div class="news-card glass">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-newspaper"></i> Live News Feed</h3>
+                    </div>
+                    <div class="news-list" id="newsListContainer">
+                        <div class="loading-spinner"><i class="fa-solid fa-spinner fa-spin"></i> Fetching crypto news feeds...</div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
