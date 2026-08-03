@@ -31,12 +31,21 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Initializing Database & Restoring Trader State...")
+    logger.info("[LIFESPAN] Initializing Database & Restoring Trader State...")
     await trader.initialize_and_restore_state()
-    logger.info("Trader State Restored Successfully.")
+    logger.info(f"[LIFESPAN] State restoration complete. Final state: {trader.state}")
+
+    # Launch background scanner worker thread ONLY after database restore completes
+    if os.getenv("TESTING") != "true":
+        logger.info("[LIFESPAN] Starting background_scanner_loop worker thread...")
+        scanner_thread = threading.Thread(target=background_scanner_loop, daemon=True)
+        scanner_thread.start()
+        logger.info("[LIFESPAN] Background scanner thread started successfully.")
+
     yield
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
+
 
 # CORS configuration: Allow localhost (3000) and Vercel production + preview deployments
 cors_origins = [
@@ -414,11 +423,7 @@ def background_scanner_loop():
         time.sleep(5.0)  # Optimized 5-second interval for RAM & API stability
 
 
-if os.getenv("TESTING") != "true":
-    scanner_thread = threading.Thread(target=background_scanner_loop, daemon=True)
-    scanner_thread.start()
-
-
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+

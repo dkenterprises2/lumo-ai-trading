@@ -23,23 +23,34 @@ class TraderRepository:
         await init_db()
 
     async def load_portfolio_state(self) -> Optional[Dict[str, Any]]:
-        """Load portfolio balance and bot settings from database."""
-        try:
-            async with AsyncSessionLocal() as session:
-                result = await session.execute(select(PortfolioModel).limit(1))
-                portfolio = result.scalars().first()
-                if portfolio:
-                    return {
-                        "usdt_balance": portfolio.usdt_balance,
-                        "initial_balance": portfolio.initial_balance,
-                        "margin_used": portfolio.margin_used,
-                        "total_value": portfolio.total_value,
-                        "auto_bot_enabled": portfolio.auto_bot_enabled,
-                        "active_strategy": portfolio.active_strategy,
-                        "risk_mode": portfolio.risk_mode
-                    }
-        except Exception as e:
-            logger.error(f"Error loading portfolio state from DB: {e}")
+        """Load portfolio balance and bot settings from database with retries."""
+        logger.info("[DB_LOAD] Attempting load_portfolio_state...")
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with AsyncSessionLocal() as session:
+                    result = await session.execute(select(PortfolioModel).limit(1))
+                    portfolio = result.scalars().first()
+                    if portfolio:
+                        data = {
+                            "usdt_balance": portfolio.usdt_balance,
+                            "initial_balance": portfolio.initial_balance,
+                            "margin_used": portfolio.margin_used,
+                            "total_value": portfolio.total_value,
+                            "auto_bot_enabled": portfolio.auto_bot_enabled,
+                            "active_strategy": portfolio.active_strategy,
+                            "risk_mode": portfolio.risk_mode
+                        }
+                        logger.info(f"[DB_LOAD] Portfolio state loaded: {data}")
+                        return data
+                    else:
+                        logger.info("[DB_LOAD] No portfolio record found in DB.")
+                        return None
+            except Exception as e:
+                logger.warning(f"[DB_LOAD_RETRY {attempt}/{max_retries}] Error loading portfolio state: {e}")
+                if attempt == max_retries:
+                    raise RuntimeError(f"CRITICAL: Failed to load portfolio state after {max_retries} retries: {e}")
+                await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
         return None
 
     async def save_portfolio_state(
@@ -53,104 +64,145 @@ class TraderRepository:
         risk_mode: str
     ):
         """Persist portfolio balance and bot configuration to DB."""
-        try:
-            async with AsyncSessionLocal() as session:
-                result = await session.execute(select(PortfolioModel).limit(1))
-                portfolio = result.scalars().first()
-                if not portfolio:
-                    portfolio = PortfolioModel(
-                        usdt_balance=usdt_balance,
-                        initial_balance=initial_balance,
-                        margin_used=margin_used,
-                        total_value=total_value,
-                        auto_bot_enabled=auto_bot_enabled,
-                        active_strategy=active_strategy,
-                        risk_mode=risk_mode
-                    )
-                    session.add(portfolio)
-                else:
-                    portfolio.usdt_balance = usdt_balance
-                    portfolio.initial_balance = initial_balance
-                    portfolio.margin_used = margin_used
-                    portfolio.total_value = total_value
-                    portfolio.auto_bot_enabled = auto_bot_enabled
-                    portfolio.active_strategy = active_strategy
-                    portfolio.risk_mode = risk_mode
+        logger.info(f"[DB_WRITE_PORTFOLIO] Attempting save_portfolio_state: balance=${usdt_balance}, margin=${margin_used}, total=${total_value}")
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with AsyncSessionLocal() as session:
+                    result = await session.execute(select(PortfolioModel).limit(1))
+                    portfolio = result.scalars().first()
+                    if not portfolio:
+                        portfolio = PortfolioModel(
+                            usdt_balance=usdt_balance,
+                            initial_balance=initial_balance,
+                            margin_used=margin_used,
+                            total_value=total_value,
+                            auto_bot_enabled=auto_bot_enabled,
+                            active_strategy=active_strategy,
+                            risk_mode=risk_mode
+                        )
+                        session.add(portfolio)
+                    else:
+                        portfolio.usdt_balance = usdt_balance
+                        portfolio.initial_balance = initial_balance
+                        portfolio.margin_used = margin_used
+                        portfolio.total_value = total_value
+                        portfolio.auto_bot_enabled = auto_bot_enabled
+                        portfolio.active_strategy = active_strategy
+                        portfolio.risk_mode = risk_mode
 
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Error saving portfolio state to DB: {e}")
+                    await session.commit()
+                    logger.info(f"[DB_COMMIT_PORTFOLIO] Portfolio state committed successfully.")
+                    return
+            except Exception as e:
+                logger.warning(f"[DB_WRITE_PORTFOLIO_RETRY {attempt}/{max_retries}] Exception saving portfolio state: {e}")
+                if attempt == max_retries:
+                    logger.error(f"[DB_ROLLBACK_PORTFOLIO] Error saving portfolio state after {max_retries} retries: {e}")
+                    raise
+                await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
 
     async def load_open_positions(self) -> Dict[str, Dict[str, Any]]:
-        """Load active open positions from DB on startup."""
-        positions = {}
-        try:
-            async with AsyncSessionLocal() as session:
-                result = await session.execute(select(PositionModel))
-                db_positions = result.scalars().all()
-                for pos in db_positions:
-                    positions[pos.symbol] = {
-                        "id": pos.id,
-                        "symbol": pos.symbol,
-                        "side": pos.side,
-                        "entry_price": pos.entry_price,
-                        "amount": pos.amount,
-                        "margin_usd": pos.margin_usd,
-                        "leverage": pos.leverage,
-                        "order_type": pos.order_type,
-                        "stop_loss_price": pos.stop_loss_price,
-                        "take_profit_price": pos.take_profit_price,
-                        "liquidation_price": pos.liquidation_price,
-                        "trailing_stop_pct": pos.trailing_stop_pct,
-                        "entry_time": pos.entry_time,
-                        "reason": pos.reason
-                    }
-        except Exception as e:
-            logger.error(f"Error loading open positions from DB: {e}")
-        return positions
+
+        """Load active open positions from DB on startup with automatic retries on DB locks."""
+        logger.info("[DB_LOAD_POSITIONS] Attempting load_open_positions...")
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            positions = {}
+            try:
+                async with AsyncSessionLocal() as session:
+                    result = await session.execute(select(PositionModel))
+                    db_positions = result.scalars().all()
+                    for pos in db_positions:
+                        positions[pos.symbol] = {
+                            "id": pos.id,
+                            "symbol": pos.symbol,
+                            "side": pos.side,
+                            "entry_price": pos.entry_price,
+                            "amount": pos.amount,
+                            "margin_usd": pos.margin_usd,
+                            "leverage": pos.leverage,
+                            "order_type": pos.order_type,
+                            "stop_loss_price": pos.stop_loss_price,
+                            "take_profit_price": pos.take_profit_price,
+                            "liquidation_price": pos.liquidation_price,
+                            "trailing_stop_pct": pos.trailing_stop_pct,
+                            "entry_time": pos.entry_time,
+                            "reason": pos.reason
+                        }
+                    logger.info(f"[DB_LOAD_POSITIONS] Successfully loaded {len(positions)} positions: {list(positions.keys())}")
+                    return positions
+            except Exception as e:
+                logger.warning(f"[DB_LOAD_POSITIONS_RETRY {attempt}/{max_retries}] Database exception while loading positions: {e}")
+                if attempt == max_retries:
+                    raise RuntimeError(f"CRITICAL: Failed to load open positions from DB after {max_retries} retries: {e}")
+                await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
+        return {}
+
 
     async def save_position(self, pos: Dict[str, Any]):
-        """Persist or update open position in DB."""
-        try:
-            async with AsyncSessionLocal() as session:
-                result = await session.execute(select(PositionModel).where(PositionModel.id == pos['id']))
-                db_pos = result.scalars().first()
-                if not db_pos:
-                    db_pos = PositionModel(
-                        id=pos['id'],
-                        symbol=pos['symbol'],
-                        side=pos['side'],
-                        entry_price=pos['entry_price'],
-                        amount=pos['amount'],
-                        margin_usd=pos['margin_usd'],
-                        leverage=pos['leverage'],
-                        order_type=pos.get('order_type', 'MARKET'),
-                        stop_loss_price=pos['stop_loss_price'],
-                        take_profit_price=pos['take_profit_price'],
-                        liquidation_price=pos.get('liquidation_price', 0.0),
-                        trailing_stop_pct=pos.get('trailing_stop_pct'),
-                        entry_time=pos['entry_time'],
-                        reason=pos.get('reason', '')
-                    )
-                    session.add(db_pos)
-                else:
-                    db_pos.amount = pos['amount']
-                    db_pos.margin_usd = pos['margin_usd']
-                    db_pos.stop_loss_price = pos['stop_loss_price']
-                    db_pos.take_profit_price = pos['take_profit_price']
+        """Persist or update open position in DB with retries."""
+        logger.info(f"[DB_SAVE_POSITION] Attempting save_position for ID={pos.get('id')}, symbol={pos.get('symbol')}...")
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with AsyncSessionLocal() as session:
+                    result = await session.execute(select(PositionModel).where(PositionModel.id == pos['id']))
+                    db_pos = result.scalars().first()
+                    if not db_pos:
+                        db_pos = PositionModel(
+                            id=pos['id'],
+                            symbol=pos['symbol'],
+                            side=pos['side'],
+                            entry_price=pos['entry_price'],
+                            amount=pos['amount'],
+                            margin_usd=pos['margin_usd'],
+                            leverage=pos['leverage'],
+                            order_type=pos.get('order_type', 'MARKET'),
+                            stop_loss_price=pos['stop_loss_price'],
+                            take_profit_price=pos['take_profit_price'],
+                            liquidation_price=pos.get('liquidation_price', 0.0),
+                            trailing_stop_pct=pos.get('trailing_stop_pct'),
+                            entry_time=pos['entry_time'],
+                            reason=pos.get('reason', '')
+                        )
+                        session.add(db_pos)
+                        logger.info(f"[DB_SAVE_POSITION_INSERT] Prepared INSERT for position ID={pos['id']}")
+                    else:
+                        db_pos.amount = pos['amount']
+                        db_pos.margin_usd = pos['margin_usd']
+                        db_pos.stop_loss_price = pos['stop_loss_price']
+                        db_pos.take_profit_price = pos['take_profit_price']
+                        logger.info(f"[DB_SAVE_POSITION_UPDATE] Prepared UPDATE for position ID={pos['id']}")
 
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Error saving position {pos.get('symbol')} to DB: {e}")
+                    await session.commit()
+                    logger.info(f"[DB_COMMIT_POSITION] Position ID={pos['id']} committed successfully.")
+                    return
+            except Exception as e:
+                logger.warning(f"[DB_SAVE_POSITION_RETRY {attempt}/{max_retries}] Exception saving position {pos.get('symbol')}: {e}")
+                if attempt == max_retries:
+                    logger.error(f"[DB_ROLLBACK_POSITION] Error saving position {pos.get('symbol')} after {max_retries} retries: {e}")
+                    raise
+                await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
 
     async def delete_position(self, pos_id: str):
-        """Remove closed position from DB."""
-        try:
-            async with AsyncSessionLocal() as session:
-                await session.execute(delete(PositionModel).where(PositionModel.id == pos_id))
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Error deleting position {pos_id} from DB: {e}")
+        """Remove closed position from DB with retries."""
+        logger.info(f"[DB_DELETE_POSITION] Attempting delete_position for ID={pos_id}...")
+        max_retries = 5
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with AsyncSessionLocal() as session:
+                    await session.execute(delete(PositionModel).where(PositionModel.id == pos_id))
+                    await session.commit()
+                    logger.info(f"[DB_COMMIT_DELETE] Position ID={pos_id} deleted successfully.")
+                    return
+            except Exception as e:
+                logger.warning(f"[DB_DELETE_POSITION_RETRY {attempt}/{max_retries}] Exception deleting position ID={pos_id}: {e}")
+                if attempt == max_retries:
+                    logger.error(f"[DB_ROLLBACK_DELETE] Error deleting position {pos_id} after {max_retries} retries: {e}")
+                    raise
+                await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
+
+
 
     async def load_trade_history(self) -> List[Dict[str, Any]]:
         """Load trade history logs from DB on startup."""

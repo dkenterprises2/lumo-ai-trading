@@ -1,6 +1,7 @@
 import time
 import asyncio
 import logging
+from enum import Enum
 from typing import Dict, List, Any, Optional
 from config import settings
 from backend.repositories.trader_repository import TraderRepository
@@ -8,8 +9,16 @@ from backend.repositories.trader_repository import TraderRepository
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("trader")
 
+class TraderState(str, Enum):
+    BOOTING = "BOOTING"
+    RESTORING_DATABASE = "RESTORING_DATABASE"
+    VERIFYING_STATE = "VERIFYING_STATE"
+    START_BACKGROUND_WORKERS = "START_BACKGROUND_WORKERS"
+    READY = "READY"
+
 class PaperTrader:
     def __init__(self, initial_balance: float = settings.PAPER_TRADING_INITIAL_BALANCE):
+        self.state = TraderState.BOOTING
         self.usdt_balance = float(initial_balance)
         self.initial_balance = float(initial_balance)
         self.positions: Dict[str, Dict[str, Any]] = {}
@@ -30,6 +39,10 @@ class PaperTrader:
 
         self.repo = TraderRepository()
         self.is_loaded = False
+        self.persistence_lock = asyncio.Lock()
+        self.background_tasks: set = set()
+
+
 
     def _execute_ledger_transaction(
         self,
@@ -55,10 +68,13 @@ class PaperTrader:
         return tx
 
     async def initialize_and_restore_state(self):
-        """Restore trader state from database on startup."""
-        if self.is_loaded:
+        """Restore trader state from database on startup following strict state machine transitions."""
+        logger.info(f"[STATE_TRANSITION] Current state: {self.state} -> Changing to RESTORING_DATABASE")
+        if self.is_loaded and self.state == TraderState.READY:
+            logger.info("[STARTUP] Already in READY state, skipping restore.")
             return
 
+        self.state = TraderState.RESTORING_DATABASE
         await self.repo.initialize_repository()
 
         # 1. Restore Portfolio State
@@ -69,33 +85,37 @@ class PaperTrader:
             self.auto_bot_enabled = portfolio_state["auto_bot_enabled"]
             self.active_strategy = portfolio_state["active_strategy"]
             self.risk_mode = portfolio_state["risk_mode"]
-            logger.info(f"Restored portfolio state from DB: ${self.usdt_balance:.2f} USDT | Strategy: {self.active_strategy}")
+            logger.info(f"[RESTORE_PORTFOLIO] Restored portfolio state: ${self.usdt_balance:.2f} USDT | Strategy: {self.active_strategy}")
+        else:
+            logger.info("[RESTORE_PORTFOLIO] No portfolio state found in DB, using defaults.")
 
-        # 2. Restore Open Positions
+        # 2. Restore Open Positions (will raise RuntimeError on retry exhaustion)
         db_positions = await self.repo.load_open_positions()
         if db_positions:
             self.positions = db_positions
-            logger.info(f"Restored {len(self.positions)} active open positions from DB.")
+            logger.info(f"[RESTORE_POSITIONS] Restored {len(self.positions)} positions: {list(self.positions.keys())}")
+        else:
+            logger.info("[RESTORE_POSITIONS] 0 open positions loaded from DB.")
 
         # 3. Restore Trade History
         db_trades = await self.repo.load_trade_history()
         if db_trades:
             self.trade_history = db_trades
-            logger.info(f"Restored {len(self.trade_history)} trade history records from DB.")
+            logger.info(f"[RESTORE_TRADES] Restored {len(self.trade_history)} trade records.")
 
         # 4. Restore Equity History
         db_equity = await self.repo.load_equity_history()
         if db_equity:
             self.equity_history = db_equity
-            logger.info(f"Restored {len(self.equity_history)} equity history snapshots from DB.")
+            logger.info(f"[RESTORE_EQUITY] Restored {len(self.equity_history)} equity snapshots.")
 
         # 5. Restore Wallet Ledger
         db_ledger = await self.repo.load_wallet_ledger()
         if db_ledger:
             self.ledger = db_ledger
-            logger.info(f"Restored {len(self.ledger)} wallet ledger records from DB.")
+            logger.info(f"[RESTORE_LEDGER] Restored {len(self.ledger)} ledger entries.")
         else:
-            # First time initialization deposit entry
+            logger.info("[RESTORE_LEDGER] Ledger empty. Creating initial DEPOSIT entry...")
             self.usdt_balance = 0.0
             self._execute_ledger_transaction(
                 tx_type="DEPOSIT",
@@ -104,68 +124,101 @@ class PaperTrader:
                 description="Initial Capital Deposit"
             )
 
+        # 6. State Verification Step
+        logger.info(f"[STATE_TRANSITION] Changing to VERIFYING_STATE...")
+        self.state = TraderState.VERIFYING_STATE
+
         # Verify wallet balance against ledger reconstruction
         reconstructed = sum(tx["amount"] for tx in self.ledger)
         if abs(self.usdt_balance - reconstructed) > 0.01:
-            logger.warning(f"Ledger mismatch on restore: USDT={self.usdt_balance}, LedgerSum={reconstructed}")
+            logger.warning(f"[RESTORE_LEDGER_MISMATCH] Ledger mismatch on restore: USDT={self.usdt_balance}, LedgerSum={reconstructed}")
             self.usdt_balance = round(reconstructed, 4)
+
+        # 7. Start Workers Transition
+        logger.info(f"[STATE_TRANSITION] Changing to START_BACKGROUND_WORKERS...")
+        self.state = TraderState.START_BACKGROUND_WORKERS
 
         self.last_equity_save_time = time.time()
         self.is_loaded = True
 
+        # 8. Ready Transition
+        logger.info(f"[STATE_TRANSITION] Changing to READY!")
+        self.state = TraderState.READY
+        logger.info(f"[STARTUP_COMPLETE] Trader is READY. Positions count: {len(self.positions)}, USDT balance: ${self.usdt_balance:.2f}")
+
+
+
+
+    async def flush_persistence(self):
+        """Await until all background persistence tasks in queue finish committing to disk."""
+        while self.background_tasks:
+            tasks = list(self.background_tasks)
+            await asyncio.gather(*tasks, return_exceptions=True)
+        async with self.persistence_lock:
+            logger.info("[PERSISTENCE_FLUSH] All queued persistence tasks committed successfully.")
+
+
+    def _run_serialized_db_task(self, coro):
+        """Serialize all database writes under self.persistence_lock in sequence with strong task references."""
+        async def _serialized_runner():
+            async with self.persistence_lock:
+                try:
+                    await coro() if callable(coro) else await coro
+                except Exception as e:
+                    logger.error(f"[SERIALIZED_PERSISTENCE_ERROR] {e}")
+
+        try:
+            loop = asyncio.get_running_loop()
+            if loop.is_running() and not loop.is_closed():
+                task = loop.create_task(_serialized_runner())
+                self.background_tasks.add(task)
+                task.add_done_callback(self.background_tasks.discard)
+        except RuntimeError:
+            pass
+
+
+    async def save_portfolio_async(self):
+        """Awaited serialized save of portfolio state to DB."""
+        await self.repo.save_portfolio_state(
+            usdt_balance=self.usdt_balance,
+            initial_balance=self.initial_balance,
+            margin_used=sum(p['margin_usd'] for p in self.positions.values()),
+            total_value=self.usdt_balance + sum(p['margin_usd'] for p in self.positions.values()),
+            auto_bot_enabled=self.auto_bot_enabled,
+            active_strategy=self.active_strategy,
+            risk_mode=self.risk_mode
+        )
+
+    async def save_position_async(self, pos: Dict[str, Any]):
+        """Awaited serialized save of position to DB."""
+        await self.repo.save_position(pos)
 
     def _sync_save_portfolio(self):
-        """Asynchronously save portfolio state to DB without blocking."""
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running() and not loop.is_closed():
-                loop.create_task(self.repo.save_portfolio_state(
-                    usdt_balance=self.usdt_balance,
-                    initial_balance=self.initial_balance,
-                    margin_used=sum(p['margin_usd'] for p in self.positions.values()),
-                    total_value=self.usdt_balance + sum(p['margin_usd'] for p in self.positions.values()),
-                    auto_bot_enabled=self.auto_bot_enabled,
-                    active_strategy=self.active_strategy,
-                    risk_mode=self.risk_mode
-                ))
-        except RuntimeError:
-            pass
+        """Serialized save of portfolio state."""
+        self._run_serialized_db_task(lambda: self.save_portfolio_async())
+
+    def _sync_save_position(self, pos: Dict[str, Any]):
+        """Serialized save of open position."""
+        self._run_serialized_db_task(lambda: self.save_position_async(pos))
 
     def _sync_record_trade(self, trade_record: Dict[str, Any]):
-        """Asynchronously persist trade record to DB."""
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running() and not loop.is_closed():
-                loop.create_task(self.repo.record_trade(trade_record))
-        except RuntimeError:
-            pass
+        """Serialized trade record write."""
+        self._run_serialized_db_task(lambda: self.repo.record_trade(trade_record))
 
     def _sync_record_wallet_tx(self, tx: Dict[str, Any]):
-        """Asynchronously persist wallet transaction ledger to DB."""
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running() and not loop.is_closed():
-                loop.create_task(self.repo.record_wallet_transaction(tx))
-        except RuntimeError:
-            pass
+        """Serialized wallet transaction write."""
+        self._run_serialized_db_task(lambda: self.repo.record_wallet_transaction(tx))
 
     def _sync_save_equity_point(self, snapshot: Dict[str, Any]):
-        """Asynchronously persist equity point to DB."""
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running() and not loop.is_closed():
-                loop.create_task(self.repo.save_equity_point(snapshot))
-        except RuntimeError:
-            pass
+        """Serialized equity point write."""
+        self._run_serialized_db_task(lambda: self.repo.save_equity_point(snapshot))
 
     def _sync_log_audit_event(self, event_type: str, details: str):
-        """Asynchronously record audit log in DB."""
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running() and not loop.is_closed():
-                loop.create_task(self.repo.log_audit_event(event_type, details))
-        except RuntimeError:
-            pass
+        """Serialized audit log write."""
+        self._run_serialized_db_task(lambda: self.repo.log_audit_event(event_type, details))
+
+
+
 
     def validate_accounting(self, total_portfolio_value: float, total_open_margin: float, total_unrealized_pnl: float) -> Dict[str, Any]:
         """Perform accounting formula check within 0.01 USDT tolerance."""
@@ -317,13 +370,7 @@ class PaperTrader:
             "open_orders": self.orders
         }
 
-    def _sync_save_position(self, pos: Dict[str, Any]):
-        try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running() and not loop.is_closed():
-                loop.create_task(self.repo.save_position(pos))
-        except RuntimeError:
-            pass
+
 
     def open_position(
         self,
@@ -461,12 +508,10 @@ class PaperTrader:
 
         if ratio >= 0.99:
             self.positions.pop(symbol)
-            try:
-                loop = asyncio.get_running_loop()
-                loop.create_task(self.repo.delete_position(pos['id']))
-            except RuntimeError:
-                pass
+            self._run_serialized_db_task(lambda: self.repo.delete_position(pos['id']))
         else:
+
+
             pos['amount'] -= amount_to_close
             pos['margin_usd'] -= margin_to_release
             self._sync_save_position(pos)

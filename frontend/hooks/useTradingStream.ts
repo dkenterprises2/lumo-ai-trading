@@ -28,12 +28,13 @@ export function useTradingStream() {
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
     let reconnectAttempts = 0;
+    const maxReconnectAttempts = 10;
 
     const connect = () => {
-      if (disposed) return;
+      if (disposed || reconnectAttempts >= maxReconnectAttempts) return;
       setConnectionState(reconnectAttempts > 0 ? "retrying" : "connecting");
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || apiUrl.replace(/^http/, "ws") + "/ws/stream";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || (apiUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:")) + "/ws/stream";
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
@@ -70,6 +71,10 @@ export function useTradingStream() {
           pingInterval = null;
         }
         if (disposed) return;
+        if (reconnectAttempts >= maxReconnectAttempts) {
+          setConnectionState("offline");
+          return;
+        }
         setConnectionState("retrying");
         const reconnectDelay = Math.min(15_000, 1_000 * 2 ** reconnectAttempts);
         reconnectAttempts += 1;

@@ -7,8 +7,7 @@ import {
   AccountingAudit
 } from "@/types/trading";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const REQUEST_TIMEOUT_MS = 12_000;
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status?: number) {
@@ -17,40 +16,26 @@ export class ApiError extends Error {
   }
 }
 
-async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    cache: "no-store"
+  });
 
-  try {
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...init,
-      cache: "no-store",
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      let detail = "";
-      try {
-        const body: unknown = await response.json();
-        if (typeof body === "object" && body !== null && "detail" in body && typeof body.detail === "string") {
-          detail = body.detail;
-        }
-      } catch {
-        // A non-JSON error response still has a meaningful HTTP status.
+  if (!response.ok) {
+    let detail = "";
+    try {
+      const body: unknown = await response.json();
+      if (typeof body === "object" && body !== null && "detail" in body && typeof body.detail === "string") {
+        detail = body.detail;
       }
-      throw new ApiError(detail || `Backend request failed (${response.status}).`, response.status);
+    } catch {
+      // A non-JSON error response still has a meaningful HTTP status.
     }
-
-    return response.json() as Promise<T>;
-  } catch (error) {
-    if (error instanceof ApiError) throw error;
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new ApiError("The backend did not respond in time. Retrying shortly.");
-    }
-    throw new ApiError("The backend is unavailable. Check that the API service is running.");
-  } finally {
-    window.clearTimeout(timeout);
+    throw new ApiError(detail || `Backend request failed (${response.status}).`, response.status);
   }
+
+  return response.json() as Promise<T>;
 }
 
 export async function fetchPortfolio(): Promise<PortfolioState> {

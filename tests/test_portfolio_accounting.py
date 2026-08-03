@@ -3,7 +3,7 @@ import asyncio
 from sqlalchemy import delete
 from backend.database.session import init_db, AsyncSessionLocal
 from backend.repositories.trader_repository import TraderRepository
-from backend.models.domain import PositionModel, TradeModel, EquityHistoryModel, PortfolioModel
+from backend.models.domain import PositionModel, TradeModel, EquityHistoryModel, PortfolioModel, WalletTransactionModel
 from trader import PaperTrader
 
 @pytest.mark.asyncio
@@ -16,6 +16,7 @@ async def test_portfolio_accounting_and_persistence():
         await session.execute(delete(TradeModel))
         await session.execute(delete(EquityHistoryModel))
         await session.execute(delete(PortfolioModel))
+        await session.execute(delete(WalletTransactionModel))
         await session.commit()
 
     repo = TraderRepository()
@@ -83,7 +84,7 @@ async def test_portfolio_accounting_and_persistence():
     assert latest_snapshot["margin"] == 1000.0
 
     # Allow async DB tasks to commit
-    await asyncio.sleep(0.5)
+    await trader.flush_persistence()
 
     # 3. Close Position
     res_close = trader.close_position("BTC/USDT", 63000.0, reason="Take Profit Met")
@@ -108,9 +109,10 @@ async def test_portfolio_accounting_and_persistence():
     assert summary2["trade_history"][0]["pnl_usd"] == 200.0
 
     # Allow async DB tasks to commit
-    await asyncio.sleep(0.5)
+    await trader.flush_persistence()
 
     # 4. Server Restart Simulation
+
     new_trader = PaperTrader(initial_balance=10000.0)
     await new_trader.initialize_and_restore_state()
 

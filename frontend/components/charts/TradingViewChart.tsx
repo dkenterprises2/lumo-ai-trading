@@ -42,6 +42,8 @@ export function TradingViewChart({
 }: TradingViewChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ReturnType<IChartApi["addSeries"]> | null>(null);
+  const priceLineRef = useRef<ReturnType<ReturnType<IChartApi["addSeries"]>["createPriceLine"]> | null>(null);
 
   // Indicator Toggle State
   const [showSMA20, setShowSMA20] = useState(true);
@@ -98,6 +100,8 @@ export function TradingViewChart({
     });
 
     chartRef.current = chart;
+    candleSeriesRef.current = null;
+    priceLineRef.current = null;
 
     // 1. Candlestick Series
     const candleSeries = chart.addSeries(CandlestickSeries, {
@@ -108,6 +112,8 @@ export function TradingViewChart({
       wickUpColor: "#00e676",
       wickDownColor: "#ff1744"
     });
+
+    candleSeriesRef.current = candleSeries;
 
     const formattedCandles = candlesList.map(c => ({
       time: c.timeNum as UTCTimestamp,
@@ -255,16 +261,11 @@ export function TradingViewChart({
 
     }
 
-    if (currentPrice !== null) {
-      candleSeries.createPriceLine({
-        price: currentPrice,
-        color: "#00f2fe",
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
-        axisLabelVisible: true,
-        title: "Current price"
-      });
-    }
+
+
+    
+    
+    
 
     // Set markers for open trades
     const markers: SeriesMarker<UTCTimestamp>[] = [];
@@ -296,9 +297,34 @@ export function TradingViewChart({
 
     return () => {
       window.removeEventListener("resize", handleResize);
+      candleSeriesRef.current = null;
       chart.remove();
     };
-  }, [candlesList, indicatorPoints, showSMA20, showSMA50, showEMA9, showEMA21, showVWAP, showBB, activePosition, currentPrice]);
+  }, [candlesList, indicatorPoints, showSMA20, showSMA50, showEMA9, showEMA21, showVWAP, showBB, activePosition]);
+
+  // Update price line separately when currentPrice changes
+  useEffect(() => {
+    if (!candleSeriesRef.current) return;
+    const candleSeries = candleSeriesRef.current;
+    
+    // Remove existing price line
+    if (priceLineRef.current) {
+      candleSeries.removePriceLine(priceLineRef.current);
+      priceLineRef.current = null;
+    }
+    
+    // Add new price line
+    if (currentPrice !== null && currentPrice > 0) {
+      priceLineRef.current = candleSeries.createPriceLine({
+        price: currentPrice,
+        color: "#00f2fe",
+        lineWidth: 1,
+        lineStyle: LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: "Current price"
+      });
+    }
+  }, [currentPrice]);
 
   // Actions
   const handleResetZoom = () => {
