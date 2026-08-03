@@ -1,6 +1,8 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { TradingConnectionState } from "@/hooks/useTradingStream";
 import {
   LayoutDashboard,
@@ -20,42 +22,42 @@ import {
   Bell,
   Settings,
   Key,
-  LogOut,
   ChevronLeft,
   ChevronRight,
   Zap
 } from "lucide-react";
 
 interface SidebarProps {
-  activeTab: string;
-  setActiveTab: (tab: string) => void;
+  activeTab?: string;
+  setActiveTab?: (tab: string) => void;
   collapsed: boolean;
   setCollapsed: (collapsed: boolean) => void;
   connectionState: TradingConnectionState;
 }
 
 export const sidebarItems = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "scanner", label: "Market Scanner", icon: Scan },
-  { id: "charts", label: "Charts", icon: LineChart },
-  { id: "orders", label: "Orders", icon: ClipboardList },
-  { id: "positions", label: "Positions", icon: Crosshair },
-  { id: "trade-history", label: "Trade History", icon: History },
-  { id: "pnl-history", label: "PnL History", icon: TrendingUp },
-  { id: "wallet-ledger", label: "Wallet Ledger", icon: BookOpen },
-  { id: "performance", label: "Performance", icon: Award },
-  { id: "bots", label: "Bots", icon: Bot },
-  { id: "strategies", label: "Strategies", icon: ChessKnight },
-  { id: "risk-manager", label: "Risk Manager", icon: ShieldAlert },
-  { id: "news", label: "News", icon: Newspaper },
-  { id: "reports", label: "Reports", icon: FileSpreadsheet },
-  { id: "alerts", label: "Alerts", icon: Bell },
-  { id: "settings", label: "Settings", icon: Settings },
-  { id: "api-keys", label: "API Keys", icon: Key },
-  { id: "logout", label: "Logout", icon: LogOut, isDanger: true }
+  { id: "dashboard", label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { id: "scanner", label: "Market Scanner", href: "/scanner", icon: Scan },
+  { id: "charts", label: "Charts", href: "/charts", icon: LineChart },
+  { id: "orders", label: "Orders", href: "/orders", icon: ClipboardList },
+  { id: "positions", label: "Positions", href: "/positions", icon: Crosshair },
+  { id: "trade-history", label: "Trade History", href: "/history", icon: History },
+  { id: "pnl-history", label: "PnL History", href: "/pnl", icon: TrendingUp },
+  { id: "wallet-ledger", label: "Wallet Ledger", href: "/ledger", icon: BookOpen },
+  { id: "performance", label: "Performance", href: "/performance", icon: Award },
+  { id: "bots", label: "Bots", href: "/bots", icon: Bot },
+  { id: "strategies", label: "Strategies", href: "/strategies", icon: ChessKnight },
+  { id: "risk-manager", label: "Risk Manager", href: "/risk", icon: ShieldAlert },
+  { id: "news", label: "News", href: "/news", icon: Newspaper },
+  { id: "reports", label: "Reports", href: "/reports", icon: FileSpreadsheet },
+  { id: "alerts", label: "Alerts", href: "/alerts", icon: Bell },
+  { id: "settings", label: "Settings", href: "/settings", icon: Settings },
+  { id: "api-keys", label: "API Keys", href: "/api-keys", icon: Key }
 ];
 
 export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, connectionState }: SidebarProps) {
+  const pathname = usePathname();
+
   return (
     <aside
       className={`fixed left-0 top-0 z-40 h-screen transition-all duration-300 border-r border-slate-800/80 bg-slate-950/90 backdrop-blur-xl flex flex-col justify-between ${
@@ -92,23 +94,22 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
         <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-140px)] scrollbar-thin scrollbar-thumb-slate-800">
           {sidebarItems.map((item) => {
             const Icon = item.icon;
-            const isActive = activeTab === item.id;
+            const isActive = pathname === item.href || (item.href !== "/" && pathname?.startsWith(item.href));
             return (
-              <button
+              <Link
                 key={item.id}
-                onClick={() => setActiveTab(item.id)}
+                href={item.href}
+                onClick={() => setActiveTab && setActiveTab(item.id)}
                 title={collapsed ? item.label : undefined}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${
                   isActive
                     ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/30 shadow-md shadow-cyan-500/10"
-                    : item.isDanger
-                    ? "text-rose-400 hover:bg-rose-500/10 hover:text-rose-300"
                     : "text-slate-400 hover:bg-slate-900 hover:text-slate-200"
                 }`}
               >
                 <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-cyan-400" : ""}`} />
                 {!collapsed && <span className="truncate">{item.label}</span>}
-              </button>
+              </Link>
             );
           })}
         </nav>

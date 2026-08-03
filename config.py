@@ -17,7 +17,9 @@ class Settings(BaseSettings):
     # The Next.js dashboard is served on a different origin during local
     # development and can be hosted separately in production. Keep this
     # explicit so browser clients can call the existing API safely.
-    CORS_ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000"
+    CORS_ALLOWED_ORIGINS: str = "http://localhost:3000,http://127.0.0.1:3000,https://lumo-ai-trading.vercel.app"
+
+
 
     # Security & Cryptography
     SECRET_KEY: str = Field(default_factory=lambda: secrets.token_urlsafe(32))

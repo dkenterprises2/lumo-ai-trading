@@ -38,16 +38,32 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
 
-# The dashboard is a separately served Next.js application.  Without this
-# middleware, all browser REST requests are rejected before their responses
-# reach the frontend, despite the API working for direct clients.
+# CORS configuration: Allow localhost (3000) and Vercel production + preview deployments
+cors_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://lumo-ai-trading.vercel.app"
+]
+
+# Parse settings.CORS_ALLOWED_ORIGINS safely (handling str, tuple, or list)
+raw_cors = getattr(settings, "CORS_ALLOWED_ORIGINS", "")
+if isinstance(raw_cors, str):
+    cors_origins.extend([o.strip() for o in raw_cors.split(",") if o.strip()])
+elif isinstance(raw_cors, (list, tuple)):
+    cors_origins.extend([o.strip() for o in raw_cors if isinstance(o, str) and o.strip()])
+
+# Deduplicate origins
+cors_origins = list(dict.fromkeys(cors_origins))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in settings.CORS_ALLOWED_ORIGINS.split(",") if origin.strip()],
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_origins=cors_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
 
 # Serve Static Assets
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -108,6 +124,13 @@ async def serve_dashboard():
 @app.websocket("/ws/stream")
 async def websocket_endpoint(websocket: WebSocket):
     """Real-Time Low Latency (<250ms target) Data WebSocket Streamer."""
+    origin = websocket.headers.get("origin", "")
+    allowed_origins = [o.strip() for o in settings.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
+    if allowed_origins and origin not in allowed_origins:
+        logger.warning(f"WebSocket connection rejected from origin: {origin}")
+        await websocket.close(code=4001)
+        return
+    
     await ws_manager.connect(websocket)
     try:
         while True:
@@ -313,8 +336,8 @@ def background_scanner_loop():
 
     while True:
         try:
-            # Refresh news sentiment every 5 minutes
-            if time.time() - last_sentiment_update > 300.0 or not sentiment_cache:
+            # Refresh news sentiment every 10 minutes
+            if time.time() - last_sentiment_update > 600.0 or not sentiment_cache:
                 fg_cache = sentiment_engine.fetch_fear_and_greed_index()
                 news_cache = sentiment_engine.fetch_crypto_news()
                 sentiment_cache = sentiment_engine.compute_aggregated_sentiment(news_cache, fg_cache)
@@ -388,10 +411,13 @@ def background_scanner_loop():
         except Exception as e:
             logger.error(f"Error in multi-symbol scanner loop: {e}")
 
-        time.sleep(2.0)  # High-frequency 2-second scan interval
+        time.sleep(5.0)  # Optimized 5-second interval for RAM & API stability
 
-scanner_thread = threading.Thread(target=background_scanner_loop, daemon=True)
-scanner_thread.start()
+
+if os.getenv("TESTING") != "true":
+    scanner_thread = threading.Thread(target=background_scanner_loop, daemon=True)
+    scanner_thread.start()
+
 
 if __name__ == "__main__":
     import uvicorn

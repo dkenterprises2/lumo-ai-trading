@@ -41,7 +41,8 @@ async def test_server_restart_recovery():
     pf2 = trader1.get_portfolio_summary(prices2)
 
     # Allow async DB persistence tasks to complete fully
-    await asyncio.sleep(0.5)
+    await asyncio.sleep(1.0)
+
 
     # 2. Simulate complete server restart
     trader2 = PaperTrader(initial_balance=10000.0)
