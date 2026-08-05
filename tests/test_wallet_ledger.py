@@ -22,8 +22,10 @@ async def test_wallet_ledger_double_entry_reconstruction():
     repo = TraderRepository()
     await repo.initialize_repository()
 
-    trader = PaperTrader(initial_balance=10000.0)
+    trader = PaperTrader(initial_balance=10000.0, user_id=105)
     await trader.initialize_and_restore_state()
+
+
 
     # 1. Verify initial deposit ledger entry
     assert len(trader.ledger) == 1
@@ -32,8 +34,9 @@ async def test_wallet_ledger_double_entry_reconstruction():
     assert trader.ledger[0]["balance_after"] == 10000.0
 
     # 2. Open Long Position -> OPEN_MARGIN transaction
-    res_open = trader.open_position("BTC/USDT", "LONG", 60000.0, 2000.0, 58000.0, 65000.0, leverage=2)
-    assert res_open["status"] == "success"
+    res_open = trader.open_position("BTC/USDT", "LONG", 60000.0, 2000.0, stop_loss_price=58000.0, take_profit_price=65000.0, leverage=2)
+    assert res_open.get("status") == "success", f"open_position failed: {res_open}"
+
     # Margin = 1000.0. Wallet balance = 9000.0
     assert len(trader.ledger) == 2
     open_tx = trader.ledger[1]
@@ -55,12 +58,14 @@ async def test_wallet_ledger_double_entry_reconstruction():
     assert pnl_tx["amount"] == 200.0
     assert pnl_tx["balance_after"] == 10200.0
 
+
     # 4. Verify wallet balance is 100% reconstructable from sum of ledger entries
     reconstructed_balance = sum(tx["amount"] for tx in trader.ledger)
     assert abs(trader.usdt_balance - reconstructed_balance) <= 0.01
 
     # 5. Persisted DB Ledger check
-    await asyncio.sleep(0.5)
-    db_ledger = await repo.load_wallet_ledger()
+    await trader.flush_persistence()
+    db_ledger = await repo.load_wallet_ledger(user_id=105)
     assert len(db_ledger) == 4
     assert sum(tx["amount"] for tx in db_ledger) == 10200.0
+

@@ -1,9 +1,101 @@
 @import "tailwindcss";
 
-@layer base {
-  body {
-    @apply bg-slate-950 text-slate-100 font-sans antialiased selection:bg-cyan-500/30 selection:text-cyan-200;
-  }
+:root,
+[data-theme="slate-cyan"] {
+  --bg-main: #020617;
+  --bg-card: rgba(15, 23, 42, 0.85);
+  --bg-card-solid: #0f172a;
+  --bg-input: #090d16;
+  --border-color: rgba(30, 41, 59, 0.8);
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --accent-color: #06b6d4;
+}
+
+[data-theme="obsidian-blue"] {
+  --bg-main: #090d16;
+  --bg-card: rgba(19, 27, 46, 0.85);
+  --bg-card-solid: #131b2e;
+  --bg-input: #05080e;
+  --border-color: rgba(37, 48, 71, 0.8);
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --accent-color: #3b82f6;
+}
+
+[data-theme="emerald-mint"] {
+  --bg-main: #021a14;
+  --bg-card: rgba(4, 43, 34, 0.85);
+  --bg-card-solid: #042b22;
+  --bg-input: #01120d;
+  --border-color: rgba(16, 185, 129, 0.3);
+  --text-main: #ecfdf5;
+  --text-muted: #6ee7b7;
+  --accent-color: #10b981;
+}
+
+[data-theme="violet-neon"] {
+  --bg-main: #0b0518;
+  --bg-card: rgba(25, 13, 53, 0.85);
+  --bg-card-solid: #190d35;
+  --bg-input: #06020d;
+  --border-color: rgba(168, 85, 247, 0.3);
+  --text-main: #faf5ff;
+  --text-muted: #c084fc;
+  --accent-color: #a855f7;
+}
+
+[data-theme="fluent-light"] {
+  --bg-main: #e2e8f0;
+  --bg-card: rgba(255, 255, 255, 0.95);
+  --bg-card-solid: #ffffff;
+  --bg-input: #f1f5f9;
+  --border-color: #cbd5e1;
+  --text-main: #0f172a;
+  --text-muted: #475569;
+  --accent-color: #0284c7;
+}
+
+html, body {
+  background-color: var(--bg-main) !important;
+  color: var(--text-main) !important;
+  transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+  min-height: 100vh;
+}
+
+/* Global Theme Variable Overrides across entire app */
+.bg-slate-950,
+.bg-slate-950\/90,
+.bg-slate-950\/80,
+.bg-slate-950\/60,
+.bg-slate-950\/30 {
+  background-color: var(--bg-main) !important;
+}
+
+.bg-slate-900,
+.bg-slate-900\/90,
+.bg-slate-900\/80,
+.bg-slate-900\/60,
+.bg-slate-900\/50,
+.bg-slate-900\/40 {
+  background-color: var(--bg-card) !important;
+}
+
+.border-slate-800,
+.border-slate-800\/80,
+.border-slate-800\/60,
+.border-slate-800\/40 {
+  border-color: var(--border-color) !important;
+}
+
+.text-slate-100,
+.text-slate-200 {
+  color: var(--text-main) !important;
+}
+
+.text-slate-400,
+.text-slate-300 {
+  color: var(--text-muted) !important;
 }
 
 /* Custom Scrollbars */
@@ -12,12 +104,12 @@
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #090d16;
+  background: var(--bg-main);
 }
 ::-webkit-scrollbar-thumb {
-  background: #1e293b;
+  background: var(--border-color);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #334155;
+  background: var(--accent-color);
 }

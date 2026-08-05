@@ -24,11 +24,12 @@ async def test_portfolio_state_persistence():
         total_value=13950.50,
         auto_bot_enabled=True,
         active_strategy="Breakout",
-        risk_mode="Aggressive"
+        risk_mode="Aggressive",
+        user_id=101
     )
 
     # Load state
-    state = await repo.load_portfolio_state()
+    state = await repo.load_portfolio_state(user_id=101)
     assert state is not None
     assert state["usdt_balance"] == 12450.50
     assert state["auto_bot_enabled"] is True
@@ -59,17 +60,17 @@ async def test_position_persistence():
     }
 
     # Save position
-    await repo.save_position(sample_pos)
+    await repo.save_position(sample_pos, user_id=102)
 
     # Load open positions
-    positions = await repo.load_open_positions()
+    positions = await repo.load_open_positions(user_id=102)
     assert "BTC/USDT" in positions
     assert positions["BTC/USDT"]["side"] == "LONG"
     assert positions["BTC/USDT"]["margin_usd"] == 1000.0
 
     # Delete position
-    await repo.delete_position("POS_TEST_BTC")
-    positions_after = await repo.load_open_positions()
+    await repo.delete_position("POS_TEST_BTC", user_id=102)
+    positions_after = await repo.load_open_positions(user_id=102)
     assert "BTC/USDT" not in positions_after
 
 @pytest.mark.asyncio
@@ -94,10 +95,12 @@ async def test_trade_history_persistence():
     }
 
     # Record trade
-    await repo.record_trade(trade_record)
+    await repo.record_trade(trade_record, user_id=103)
 
     # Load trade history
-    trades = await repo.load_trade_history()
+    trades = await repo.load_trade_history(user_id=103)
     assert len(trades) > 0
     assert trades[0]["symbol"] == "ETH/USDT"
     assert trades[0]["pnl_usd"] == 200.0
+
+

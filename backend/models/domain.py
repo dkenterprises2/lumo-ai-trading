@@ -9,18 +9,58 @@ class UserModel(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(128), default="Trader User")
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     email: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    avatar: Mapped[str] = mapped_column(String(256), default="https://api.dicebear.com/7.x/avataaars/svg?seed=LumoTrader")
+    timezone: Mapped[str] = mapped_column(String(64), default="UTC")
+    trading_mode: Mapped[str] = mapped_column(String(32), default="Paper")
     role: Mapped[str] = mapped_column(String(32), default="trader")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class RefreshTokenModel(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    token: Mapped[str] = mapped_column(String(512), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class UserSessionModel(Base):
+    __tablename__ = "user_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    session_token: Mapped[str] = mapped_column(String(256), unique=True, index=True, nullable=False)
+    user_agent: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class PasswordResetTokenModel(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
+    token: Mapped[str] = mapped_column(String(256), unique=True, index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_used: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class SettingsModel(Base):
     __tablename__ = "settings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    key: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    key: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
     value: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
@@ -28,6 +68,7 @@ class PortfolioModel(Base):
     __tablename__ = "portfolio"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     usdt_balance: Mapped[float] = mapped_column(Float, default=10000.0)
     initial_balance: Mapped[float] = mapped_column(Float, default=10000.0)
     margin_used: Mapped[float] = mapped_column(Float, default=0.0)
@@ -41,6 +82,7 @@ class PositionModel(Base):
     __tablename__ = "positions"
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     side: Mapped[str] = mapped_column(String(16), nullable=False) # LONG or SHORT
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)
@@ -60,6 +102,7 @@ class OrderModel(Base):
     __tablename__ = "orders"
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     side: Mapped[str] = mapped_column(String(16), nullable=False)
     order_type: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -72,6 +115,7 @@ class TradeModel(Base):
     __tablename__ = "trades"
 
     id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     symbol: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     side: Mapped[str] = mapped_column(String(16), nullable=False)
     entry_price: Mapped[float] = mapped_column(Float, nullable=False)
@@ -142,6 +186,7 @@ class PerformanceModel(Base):
     __tablename__ = "performance"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     total_portfolio_value: Mapped[float] = mapped_column(Float, nullable=False)
     total_pnl_usd: Mapped[float] = mapped_column(Float, nullable=False)
     win_rate: Mapped[float] = mapped_column(Float, default=0.0)
@@ -151,6 +196,7 @@ class EquityHistoryModel(Base):
     __tablename__ = "equity_history"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
     equity: Mapped[float] = mapped_column(Float, nullable=False)
     wallet: Mapped[float] = mapped_column(Float, nullable=False)
@@ -163,6 +209,7 @@ class WalletTransactionModel(Base):
     __tablename__ = "wallet_transactions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     tx_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
     timestamp: Mapped[str] = mapped_column(String(64), nullable=False)
     tx_type: Mapped[str] = mapped_column(String(32), nullable=False)
@@ -176,8 +223,10 @@ class AuditLogModel(Base):
     __tablename__ = "audit_logs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     details: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 
 

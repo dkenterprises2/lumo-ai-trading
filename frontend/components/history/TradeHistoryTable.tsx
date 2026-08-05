@@ -51,8 +51,11 @@ export function TradeHistoryTable({ trades }: TradeHistoryTableProps) {
             ) : (
               trades.map((t) => {
                 const isClosed = t.status === "CLOSED" || (t.exit_time && t.exit_time !== "");
-                const isProfit = (t.pnl_usd || 0) >= 0;
-                const pnlSign = isProfit ? "+" : "";
+                const pnlVal = t.pnl_usd || 0;
+                const pctVal = t.pnl_pct || 0;
+                const isProfit = pnlVal >= 0;
+                const formattedMoney = isProfit ? `+$${pnlVal.toFixed(2)}` : `-$${Math.abs(pnlVal).toFixed(2)}`;
+                const formattedPct = isProfit ? `+${pctVal.toFixed(2)}%` : `-${Math.abs(pctVal).toFixed(2)}%`;
 
                 return (
                   <tr key={t.id} className="hover:bg-slate-800/40 transition-colors">
@@ -80,11 +83,12 @@ export function TradeHistoryTable({ trades }: TradeHistoryTableProps) {
                     <td className="py-3 px-3 font-mono">{t.amount.toFixed(4)}</td>
                     <td className="py-3 px-3 font-mono">${t.margin_usd.toFixed(2)}</td>
                     <td className={`py-3 px-3 font-mono font-bold ${isProfit ? "text-emerald-400" : "text-rose-400"}`}>
-                      {isClosed ? `${pnlSign}$${t.pnl_usd.toFixed(2)}` : "$0.00"}
+                      {isClosed ? formattedMoney : "$0.00"}
                     </td>
                     <td className={`py-3 px-3 font-mono font-bold ${isProfit ? "text-emerald-400" : "text-rose-400"}`}>
-                      {isClosed ? `${pnlSign}${t.pnl_pct.toFixed(2)}%` : "0.0%"}
+                      {isClosed ? formattedPct : "0.0%"}
                     </td>
+
                     <td className="py-3 px-3 text-right">
                       <span
                         className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${

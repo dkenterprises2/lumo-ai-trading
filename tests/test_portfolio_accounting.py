@@ -29,11 +29,14 @@ async def test_portfolio_accounting_and_persistence():
         total_value=10000.0,
         auto_bot_enabled=False,
         active_strategy="AI Hybrid",
-        risk_mode="Moderate"
+        risk_mode="Moderate",
+        user_id=104
     )
 
-    trader = PaperTrader(initial_balance=10000.0)
+    trader = PaperTrader(initial_balance=10000.0, user_id=104)
     await trader.initialize_and_restore_state()
+
+
 
     # 1. Initial State Check
     summary0 = trader.get_portfolio_summary({"BTC/USDT": 60000.0})
@@ -113,8 +116,9 @@ async def test_portfolio_accounting_and_persistence():
 
     # 4. Server Restart Simulation
 
-    new_trader = PaperTrader(initial_balance=10000.0)
+    new_trader = PaperTrader(initial_balance=10000.0, user_id=104)
     await new_trader.initialize_and_restore_state()
+
 
     restored_summary = new_trader.get_portfolio_summary(prices)
     assert restored_summary["usdt_balance"] == 10200.0

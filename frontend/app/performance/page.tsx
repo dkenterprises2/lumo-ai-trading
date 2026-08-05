@@ -30,9 +30,19 @@ export default function PerformancePage() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-1">
               <span className="text-xs text-slate-400">Total Profit / Loss</span>
-              <div className="text-xl font-extrabold text-emerald-400">+${currentPortfolio?.total_pnl_usd.toFixed(2) ?? "0.00"}</div>
+              {(() => {
+                const pnl = currentPortfolio?.total_pnl_usd ?? 0;
+                const isPos = pnl >= 0;
+                const displayStr = isPos ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`;
+                return (
+                  <div className={`text-xl font-extrabold ${isPos ? "text-emerald-400" : "text-rose-400"}`}>
+                    {displayStr}
+                  </div>
+                );
+              })()}
             </div>
             <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-1">
+
               <span className="text-xs text-slate-400">Win Rate</span>
               <div className="text-xl font-extrabold text-cyan-400">{currentPortfolio?.win_rate.toFixed(1) ?? "0.0"}%</div>
             </div>

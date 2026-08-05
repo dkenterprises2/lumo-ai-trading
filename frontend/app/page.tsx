@@ -26,6 +26,8 @@ import {
   toggleBot
 } from "@/services/api";
 
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
+
 function messageFor(error: unknown) {
   return error instanceof ApiError || error instanceof Error
     ? error.message

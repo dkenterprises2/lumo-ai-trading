@@ -12,7 +12,7 @@ Base = declarative_base()
 ASYNC_DB_URL = settings.ASYNC_DATABASE_URL
 
 # SQLite vs PostgreSQL async pool handling
-connect_args = {"check_same_thread": False} if "sqlite" in ASYNC_DB_URL else {}
+connect_args = {"check_same_thread": False, "timeout": 30} if "sqlite" in ASYNC_DB_URL else {}
 
 async_engine = create_async_engine(
     ASYNC_DB_URL,
@@ -20,6 +20,7 @@ async_engine = create_async_engine(
     connect_args=connect_args,
     future=True
 )
+
 
 AsyncSessionLocal = async_sessionmaker(
     bind=async_engine,
@@ -49,10 +50,33 @@ async def init_db():
             import backend.models.domain  # noqa: F401
             await conn.run_sync(Base.metadata.create_all)
 
-            # Auto-migrate missing columns for Trades table
-            def migrate_trades(sync_conn):
+            # Auto-migrate missing columns across all domain tables
+            def auto_migrate_schema(sync_conn):
                 from sqlalchemy import inspect, text
                 inspector = inspect(sync_conn)
+                
+                if inspector.has_table("users"):
+                    user_cols = [c["name"] for c in inspector.get_columns("users")]
+                    user_new_cols = [
+                        ("name", "VARCHAR(128) DEFAULT 'Trader User'"),
+                        ("avatar", "VARCHAR(256) DEFAULT 'https://api.dicebear.com/7.x/avataaars/svg?seed=LumoTrader'"),
+                        ("timezone", "VARCHAR(64) DEFAULT 'UTC'"),
+                        ("trading_mode", "VARCHAR(32) DEFAULT 'Paper'"),
+                        ("failed_login_attempts", "INTEGER DEFAULT 0"),
+                        ("locked_until", "DATETIME NULL"),
+                        ("updated_at", "DATETIME NULL")
+                    ]
+                    for col_name, col_type in user_new_cols:
+                        if col_name not in user_cols:
+                            sync_conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+
+                user_id_tables = ["portfolio", "positions", "trades", "orders", "equity_history", "wallet_transactions", "performance", "audit_logs", "settings"]
+                for tbl in user_id_tables:
+                    if inspector.has_table(tbl):
+                        cols = [c["name"] for c in inspector.get_columns(tbl)]
+                        if "user_id" not in cols:
+                            sync_conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
+
                 if inspector.has_table("trades"):
                     columns = [c["name"] for c in inspector.get_columns("trades")]
                     new_cols = [
@@ -71,7 +95,9 @@ async def init_db():
                         if col_name not in columns:
                             sync_conn.execute(text(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}"))
 
-            await conn.run_sync(migrate_trades)
+
+            await conn.run_sync(auto_migrate_schema)
+
 
         logger.info("Database schema initialized/verified successfully.")
     except Exception as e:

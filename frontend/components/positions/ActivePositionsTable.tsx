@@ -51,8 +51,11 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
             ) : (
               positions.map((pos) => {
                 const isLong = pos.side === "LONG";
-                const isProfit = pos.unrealized_pnl_usd >= 0;
-                const pnlSign = isProfit ? "+" : "";
+                const pnlVal = pos.unrealized_pnl_usd || 0;
+                const pctVal = pos.unrealized_pnl_pct || 0;
+                const isProfit = pnlVal >= 0;
+                const formattedMoney = isProfit ? `+$${pnlVal.toFixed(2)}` : `-$${Math.abs(pnlVal).toFixed(2)}`;
+                const formattedPct = isProfit ? `+${pctVal.toFixed(2)}%` : `-${Math.abs(pctVal).toFixed(2)}%`;
 
                 return (
                   <tr key={pos.id} className="hover:bg-slate-800/40 transition-colors">
@@ -75,8 +78,9 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
                     </td>
                     <td className="py-3 px-3 font-mono">${pos.margin_usd.toFixed(2)}</td>
                     <td className={`py-3 px-3 font-mono font-bold ${isProfit ? "text-emerald-400" : "text-rose-400"}`}>
-                      {pnlSign}${pos.unrealized_pnl_usd.toFixed(2)} ({pnlSign}{pos.unrealized_pnl_pct.toFixed(2)}%)
+                      {formattedMoney} ({formattedPct})
                     </td>
+
                     <td className="py-3 px-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <button

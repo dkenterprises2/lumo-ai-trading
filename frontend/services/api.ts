@@ -7,7 +7,8 @@ import {
   AccountingAudit
 } from "@/types/trading";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+import { API_BASE_URL as API_BASE } from "@/lib/config";
+
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status?: number) {
@@ -16,11 +17,58 @@ export class ApiError extends Error {
   }
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("lumo_access_token") : null;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(init?.headers as Record<string, string> || {}),
+  };
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  let response = await fetch(`${API_BASE}${path}`, {
     ...init,
+    headers,
+    credentials: "include",
     cache: "no-store"
   });
+
+  // Handle Token Refresh on 401 Unauthorized
+  if (response.status === 401 && path !== "/api/auth/login" && path !== "/api/auth/register" && path !== "/api/auth/refresh") {
+    try {
+      const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include"
+      });
+
+      if (refreshRes.ok) {
+        const refreshData = await refreshRes.json();
+        if (refreshData.access_token) {
+          localStorage.setItem("lumo_access_token", refreshData.access_token);
+          headers["Authorization"] = `Bearer ${refreshData.access_token}`;
+
+          // Retry original request with new token
+          response = await fetch(`${API_BASE}${path}`, {
+            ...init,
+            headers,
+            credentials: "include",
+            cache: "no-store"
+          });
+        }
+      }
+    } catch {
+      // Ignore refresh error and proceed to return response
+    }
+  }
+
+  return response;
+}
+
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await apiFetch(path, init);
 
   if (!response.ok) {
     let detail = "";
@@ -37,6 +85,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   return response.json() as Promise<T>;
 }
+
 
 export async function fetchPortfolio(): Promise<PortfolioState> {
   return requestJson<PortfolioState>("/api/portfolio");
@@ -106,9 +155,23 @@ export async function toggleBot(enable: boolean): Promise<{ status: string; mess
 }
 
 export async function setStrategy(strategy_name: string, risk_mode: string = "Moderate"): Promise<{ status: string; message: string }> {
-  return requestJson<{ status: string; message: string }>("/api/bot/strategy", {
+  return requestJson<{ status: string; message: string }>(`/api/bot/strategy?strategy_name=${encodeURIComponent(strategy_name)}&risk_mode=${encodeURIComponent(risk_mode)}`, {
+    method: "POST"
+  });
+}
+
+export async function depositVirtualFunds(amount: number): Promise<{ status: string; message: string; usdt_balance: number }> {
+  return requestJson<{ status: string; message: string; usdt_balance: number }>("/api/wallet/deposit", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ strategy_name, risk_mode })
+    body: JSON.stringify({ amount })
+  });
+}
+
+export async function withdrawVirtualFunds(amount: number): Promise<{ status: string; message: string; usdt_balance: number }> {
+  return requestJson<{ status: string; message: string; usdt_balance: number }>("/api/wallet/withdraw", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ amount })
   });
 }
