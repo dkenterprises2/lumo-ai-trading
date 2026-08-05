@@ -6,7 +6,8 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { useTradingStream } from "@/hooks/useTradingStream";
 import { useQuery } from "@tanstack/react-query";
-import { fetchPortfolio, fetchNewsSentiment, toggleBot, setStrategy, depositVirtualFunds, withdrawVirtualFunds } from "@/services/api";
+import { fetchPortfolio, fetchNewsSentiment, toggleBot, setStrategy, depositVirtualFunds, withdrawVirtualFunds, saveExecutionParameters } from "@/services/api";
+
 import { useTheme, COLOR_THEMES, ColorThemeId } from "@/context/ThemeContext";
 import { Wallet, PlusCircle, MinusCircle, ArrowDownRight, ArrowUpRight, CheckCircle2, AlertCircle, RefreshCw, Palette, Check } from "lucide-react";
 
@@ -26,6 +27,56 @@ export default function SettingsPage() {
   const [isDepositing, setIsDepositing] = useState(false);
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Default Execution Parameters State
+  const [defaultAllocation, setDefaultAllocation] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lumo_default_allocation') || '1000';
+    }
+    return '1000';
+  });
+  const [defaultLeverage, setDefaultLeverage] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lumo_default_leverage') || '1';
+    }
+    return '1';
+  });
+  const [paramFeedback, setParamFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleApplyParameters = async () => {
+    const alloc = parseFloat(defaultAllocation);
+    const lev = parseInt(defaultLeverage, 10);
+
+    if (isNaN(alloc) || alloc <= 0) {
+      setParamFeedback({ type: 'error', message: 'Please enter a valid default allocation amount greater than 0.' });
+      return;
+    }
+    if (isNaN(lev) || lev < 1 || lev > 25) {
+      setParamFeedback({ type: 'error', message: 'Default leverage multiplier must be between 1x and 25x.' });
+      return;
+    }
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('lumo_default_allocation', alloc.toString());
+      localStorage.setItem('lumo_default_leverage', lev.toString());
+    }
+
+    try {
+      const res = await saveExecutionParameters(alloc, lev);
+      setParamFeedback({
+        type: 'success',
+        message: res.message || `Execution parameters applied successfully! Default Allocation: $${alloc.toLocaleString()} USDT | Leverage: ${lev}x`
+      });
+      portfolioQuery.refetch();
+    } catch (err: any) {
+      setParamFeedback({
+        type: 'error',
+        message: err.message || `Failed to sync parameters with AI trading engine.`
+      });
+    }
+  };
+
+
 
   const handleDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,22 +154,34 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {COLOR_THEMES.map((item) => {
                 const isActive = theme === item.id;
+                const isLightCard = item.id === "fluent-light";
+                const textColor = isLightCard ? "#0f172a" : "#f8fafc";
+                const descColor = isLightCard ? "#334155" : "#cbd5e1";
+                const metaColor = isLightCard ? "#475569" : "#94a3b8";
+                const cardBorder = isActive 
+                  ? (isLightCard ? "2px solid #0284c7" : "2px solid #06b6d4") 
+                  : (isLightCard ? "1px solid #cbd5e1" : "1px solid #1e293b");
+
                 return (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => setTheme(item.id)}
-                    className={`p-4 rounded-xl border text-left transition-all relative overflow-hidden flex flex-col justify-between space-y-3 cursor-pointer ${
+                    className={`p-4 rounded-xl text-left transition-all relative overflow-hidden flex flex-col justify-between space-y-3 cursor-pointer shadow-md ${
                       isActive
-                        ? "border-cyan-500 ring-2 ring-cyan-500/30 shadow-lg scale-[1.02]"
-                        : "border-slate-800 hover:border-slate-700 opacity-80 hover:opacity-100"
+                        ? "ring-2 ring-cyan-500/40 shadow-lg scale-[1.02]"
+                        : "hover:border-slate-700 hover:scale-[1.01]"
                     }`}
-                    style={{ backgroundColor: item.bgHex }}
+                    style={{
+                      backgroundColor: item.bgHex,
+                      border: cardBorder,
+                      color: textColor
+                    }}
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-2">
-                        <span className="w-4 h-4 rounded-full border border-slate-700 inline-block shadow-sm" style={{ backgroundColor: item.accentColor }} />
-                        <span className="font-semibold text-sm">{item.name}</span>
+                        <span className="w-4 h-4 rounded-full border border-black/20 inline-block shadow-sm flex-shrink-0" style={{ backgroundColor: item.accentColor }} />
+                        <span className="font-bold text-sm tracking-tight" style={{ color: textColor }}>{item.name}</span>
                       </div>
                       {isActive && (
                         <span className="px-2.5 py-0.5 rounded-full text-white text-[10px] font-bold tracking-wider flex items-center space-x-1 shadow-sm" style={{ backgroundColor: item.accentColor }}>
@@ -127,11 +190,11 @@ export default function SettingsPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs opacity-80 leading-relaxed">{item.description}</p>
-                    <div className="flex items-center justify-between pt-2 border-t border-white/10 text-[11px] font-mono opacity-70">
-                      <span>ACCENT: {item.accentColor}</span>
+                    <p className="text-xs leading-relaxed font-medium" style={{ color: descColor }}>{item.description}</p>
+                    <div className="flex items-center justify-between pt-2 border-t text-[11px] font-mono" style={{ borderColor: isLightCard ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.15)", color: metaColor }}>
+                      <span className="font-semibold">ACCENT: {item.accentColor}</span>
                       <div className="flex items-center space-x-1.5">
-                        <span className="w-3 h-3 rounded-full border border-white/20" style={{ backgroundColor: item.bgHex }} />
+                        <span className="w-3 h-3 rounded-full border border-black/20" style={{ backgroundColor: item.bgHex }} />
                         <span className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: item.accentColor }} />
                       </div>
                     </div>
@@ -139,6 +202,7 @@ export default function SettingsPage() {
                 );
               })}
             </div>
+
           </div>
 
 
@@ -245,20 +309,60 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* Platform General Preferences */}
-          <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
-            <h2 className="text-md font-semibold text-slate-200">Default Execution Parameters</h2>
+          {/* Platform General Preferences & Execution Parameters */}
+          <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-5 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+              <div>
+                <h2 className="text-md font-semibold text-slate-200">Default Execution Parameters</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Configure default trade sizing and leverage applied across quick order forms</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleApplyParameters}
+                className="px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl text-xs uppercase tracking-wider transition shadow-lg shadow-cyan-500/20 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>Apply Parameters</span>
+              </button>
+            </div>
+
+            {paramFeedback && (
+              <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 border ${
+                paramFeedback.type === "success" 
+                  ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
+                  : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+              }`}>
+                {paramFeedback.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                <span>{paramFeedback.message}</span>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-400">Default Allocation USD per Trade</label>
-                <input type="number" defaultValue={1000} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-slate-100" />
+                <label className="text-xs font-semibold text-slate-400">Default Allocation USD per Trade ($ USDT)</label>
+                <input
+                  type="number"
+                  value={defaultAllocation}
+                  onChange={(e) => setDefaultAllocation(e.target.value)}
+                  placeholder="1000"
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-slate-100 focus:outline-none focus:border-cyan-500"
+                />
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-400">Default Leverage Multiplier</label>
-                <input type="number" defaultValue={1} min={1} max={25} className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-slate-100" />
+                <label className="text-xs font-semibold text-slate-400">Default Leverage Multiplier (1x - 25x)</label>
+                <input
+                  type="number"
+                  value={defaultLeverage}
+                  onChange={(e) => setDefaultLeverage(e.target.value)}
+                  min={1}
+                  max={25}
+                  placeholder="1"
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-slate-100 focus:outline-none focus:border-cyan-500"
+                />
               </div>
             </div>
           </div>
+
         </main>
 
         <Footer dbSyncStatus={currentPortfolio?.database_sync_status} lastValidationTime={currentPortfolio?.last_validation_time} connectionState={stream.connectionState} />

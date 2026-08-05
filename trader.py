@@ -31,8 +31,11 @@ class PaperTrader:
         self.auto_bot_enabled = False
         self.risk_mode = getattr(settings, "DEFAULT_RISK_MODE", "Moderate")
         self.active_strategy = "AI Hybrid"
+        self.default_allocation_usd: float = 1000.0
+        self.default_leverage: int = 1
         self.max_open_positions = 10
         self.daily_start_balance = float(initial_balance)
+
         
         self.accounting_status = "PASS"
         self.database_sync_status = "SYNCED"
@@ -109,7 +112,9 @@ class PaperTrader:
             self.auto_bot_enabled = portfolio_state["auto_bot_enabled"]
             self.active_strategy = portfolio_state["active_strategy"]
             self.risk_mode = portfolio_state["risk_mode"]
-            logger.info(f"[RESTORE_PORTFOLIO] Restored portfolio state for user_id={self.user_id}: ${self.usdt_balance:.2f} USDT | Strategy: {self.active_strategy}")
+            self.default_allocation_usd = portfolio_state.get("default_allocation_usd", 1000.0)
+            self.default_leverage = portfolio_state.get("default_leverage", 1)
+            logger.info(f"[RESTORE_PORTFOLIO] Restored portfolio state for user_id={self.user_id}: ${self.usdt_balance:.2f} USDT | Strategy: {self.active_strategy} | Alloc: ${self.default_allocation_usd} | Leverage: {self.default_leverage}x")
         else:
             logger.info(f"[RESTORE_PORTFOLIO] No portfolio state found in DB for user_id={self.user_id}, using defaults.")
 
@@ -136,18 +141,31 @@ class PaperTrader:
         # 5. Restore Wallet Ledger
         db_ledger = await self.repo.load_wallet_ledger(user_id=self.user_id)
         if db_ledger:
-            self.ledger = db_ledger
+            # Deduplicate any duplicate initial deposits if multiple existed from previous restarts
+            seen_init = False
+            filtered_ledger = []
+            for tx in db_ledger:
+                if tx.get("reference_id") == "INIT_DEPOSIT" or tx.get("description") == "Initial Capital Deposit":
+                    if not seen_init:
+                        seen_init = True
+                        tx["amount"] = self.initial_balance
+                        tx["balance_after"] = self.initial_balance
+                        filtered_ledger.append(tx)
+                else:
+                    filtered_ledger.append(tx)
+            self.ledger = filtered_ledger
             logger.info(f"[RESTORE_LEDGER] Restored {len(self.ledger)} ledger entries for user_id={self.user_id}.")
         else:
-            logger.info(f"[RESTORE_LEDGER] Ledger empty for user_id={self.user_id}. Creating initial DEPOSIT entry...")
+            logger.info(f"[RESTORE_LEDGER] Ledger empty for user_id={self.user_id}. Creating single initial DEPOSIT entry...")
+            target_balance = self.initial_balance if (not portfolio_state or self.usdt_balance <= 0) else self.usdt_balance
             self.usdt_balance = 0.0
+            self.ledger = []
             self._execute_ledger_transaction(
                 tx_type="DEPOSIT",
-                amount=self.initial_balance,
+                amount=target_balance,
                 reference_id="INIT_DEPOSIT",
                 description="Initial Capital Deposit"
             )
-
 
         # 6. State Verification Step
         logger.info(f"[STATE_TRANSITION] Changing to VERIFYING_STATE...")
@@ -158,6 +176,7 @@ class PaperTrader:
         if abs(self.usdt_balance - reconstructed) > 0.01:
             logger.warning(f"[RESTORE_LEDGER_MISMATCH] Ledger mismatch on restore: USDT={self.usdt_balance}, LedgerSum={reconstructed}")
             self.usdt_balance = round(reconstructed, 4)
+
 
         # 7. Start Workers Transition
         logger.info(f"[STATE_TRANSITION] Changing to START_BACKGROUND_WORKERS...")
@@ -245,13 +264,16 @@ class PaperTrader:
         await self.repo.save_portfolio_state(
             usdt_balance=self.usdt_balance,
             initial_balance=self.initial_balance,
-            margin_used=sum(p['margin_usd'] for p in self.positions.values()),
-            total_value=self.usdt_balance + sum(p['margin_usd'] for p in self.positions.values()),
+            margin_used=sum(p.get('margin_usd', 0.0) for p in self.positions.values()),
+            total_value=self.usdt_balance + sum(p.get('margin_usd', 0.0) for p in self.positions.values()),
             auto_bot_enabled=self.auto_bot_enabled,
             active_strategy=self.active_strategy,
             risk_mode=self.risk_mode,
+            default_allocation_usd=self.default_allocation_usd,
+            default_leverage=self.default_leverage,
             user_id=self.user_id
         )
+
 
     async def save_position_async(self, pos: Dict[str, Any]):
         """Awaited serialized save of position to DB."""
@@ -698,6 +720,65 @@ class PaperTrader:
 
         for symbol, price, reason in to_close:
             self.close_position(symbol, price, reason=reason)
+
+    def reset_paper_account(self, default_balance: float = 10000.0) -> Dict[str, Any]:
+        """Reset paper trading account balance to default $10,000 USDT and completely clear positions, orders, trade history, equity history, and ledger in memory and database."""
+        self.usdt_balance = float(default_balance)
+        self.initial_balance = float(default_balance)
+        self.daily_start_balance = float(default_balance)
+        self.positions = {}
+        self.orders = []
+        self.trade_history = []
+        self.equity_history = []
+        self.ledger = []
+        self.auto_bot_enabled = False
+
+        # Add clean initial ledger entry
+        tx_id = f"TX_{int(time.time() * 1000)}_1"
+        init_tx = {
+            "tx_id": tx_id,
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "tx_type": "DEPOSIT",
+            "amount": float(default_balance),
+            "balance_after": float(default_balance),
+            "reference_id": "RESET_ACCOUNT",
+            "description": "Paper Account Reset to Default $10,000.00 USDT"
+        }
+        self.ledger.append(init_tx)
+
+        # Clear database tables in SQLite for user_id (and fallback without user_id)
+        try:
+            from config import settings
+            import sqlite3
+            db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            
+            if self.user_id is not None:
+                cursor.execute("DELETE FROM positions WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
+                cursor.execute("DELETE FROM orders WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
+                cursor.execute("DELETE FROM trades WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
+                cursor.execute("DELETE FROM equity_history WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
+                cursor.execute("DELETE FROM wallet_transactions WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
+                cursor.execute("UPDATE portfolio SET usdt_balance = ?, initial_balance = ?, margin_used = 0.0, total_value = ? WHERE user_id = ? OR user_id IS NULL", (default_balance, default_balance, default_balance, self.user_id))
+            else:
+                cursor.execute("DELETE FROM positions")
+                cursor.execute("DELETE FROM orders")
+                cursor.execute("DELETE FROM trades")
+                cursor.execute("DELETE FROM equity_history")
+                cursor.execute("DELETE FROM wallet_transactions")
+                cursor.execute("UPDATE portfolio SET usdt_balance = ?, initial_balance = ?, margin_used = 0.0, total_value = ?", (default_balance, default_balance, default_balance))
+
+            conn.commit()
+            conn.close()
+            logger.info(f"[RESET_PAPER_ACCOUNT] Successfully wiped positions, trades, orders, equity history & reset balance to ${default_balance:.2f} for user {self.user_id}")
+        except Exception as e:
+            logger.error(f"[RESET_PAPER_ACCOUNT] Database wipe error for user {self.user_id}: {e}", exc_info=True)
+
+        self._sync_save_portfolio()
+        self._sync_record_wallet_tx(init_tx)
+        return {"status": "success", "message": f"Paper trading account, open positions, and trade history reset to default ${default_balance:,.2f} USDT."}
+
 
 class TraderManager:
     def __init__(self):

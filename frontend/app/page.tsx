@@ -157,17 +157,18 @@ export default function DashboardPage() {
         />
 
         {(queryErrors.length > 0 || actionNotice || isLoading) && (
-          <div className={`mb-6 flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm ${
+          <div className={`mb-6 flex items-start gap-3 rounded-2xl border px-4 py-3 text-sm font-semibold shadow-sm backdrop-blur-md transition-all ${
             actionNotice?.tone === "success"
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+              ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
               : queryErrors.length > 0 || actionNotice?.tone === "error"
-                ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
-                : "border-cyan-500/30 bg-cyan-500/10 text-cyan-100"
+                ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
+                : "border-cyan-500/40 bg-cyan-500/15 text-cyan-300"
           }`}>
             {actionNotice?.tone === "success" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
             <div className="min-w-0 flex-1">
               {actionNotice ? actionNotice.message : isLoading ? "Loading portfolio data from the backend…" : queryErrors[0]}
             </div>
+
             {(queryErrors.length > 0 || actionNotice?.tone === "error") && (
               <button onClick={() => void refreshDashboard()} className="inline-flex items-center gap-1 text-xs font-semibold hover:text-white">
                 <RefreshCw className="h-3.5 w-3.5" /> Retry

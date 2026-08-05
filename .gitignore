@@ -1,0 +1,29 @@
+# Python bytecode & cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Database & SQLite WAL files
+*.db
+*.db-shm
+*.db-wal
+lumo_trading.db*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Next.js build output
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/node_modules/
+
+# Logs
+logs/
+*.log
+
+# Scratch scripts
+scratch/

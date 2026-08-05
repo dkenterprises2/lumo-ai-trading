@@ -31,17 +31,20 @@ logger.add(
     diagnose=True
 )
 
-# 2. File Handler (JSON Structured, Rotated)
-LOG_FILE_PATH = LOGS_DIR / "lumo_trading.log"
+# 2. File Handler (JSON Structured, Rotated, Windows Process-Safe)
+LOG_FILE_PATH = LOGS_DIR / "lumo_trading_{time:YYYY-MM-DD}.log"
 logger.add(
     str(LOG_FILE_PATH),
-    rotation="10 MB",
+    rotation="00:00",
     retention="14 days",
     compression="zip",
     serialize=True,  # Outputs structured JSON for log processors
     level="INFO",
-    enqueue=True     # Thread-safe async queueing
+    enqueue=True,    # Thread-safe async queueing
+    catch=True,      # Suppresses Windows file-sink rotation errors gracefully
+    delay=True       # Lazy file handle creation
 )
+
 
 # 3. Intercept Standard Python Logging Handler (for Uvicorn, FastAPI, SQLAlchemy)
 class InterceptHandler(logging.Handler):

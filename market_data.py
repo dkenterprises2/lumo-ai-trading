@@ -9,13 +9,19 @@ from typing import Dict, List, Any
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("market_data")
 
+def normalize_symbol(symbol: str) -> str:
+    s = symbol.upper().replace("-", "/").replace("_", "")
+    if "/" not in s and s.endswith("USDT"):
+        s = s[:-4] + "/USDT"
+    return s
+
 class MarketDataEngine:
     def __init__(self):
         try:
             self.exchange = ccxt.binance({
                 'enableRateLimit': True,
                 'options': {'defaultType': 'spot'},
-                'timeout': 3000
+                'timeout': 1000  # 1s max timeout
             })
         except Exception as e:
             logger.warning(f"Failed to initialize CCXT exchange: {e}")
@@ -26,12 +32,15 @@ class MarketDataEngine:
         self.ohlcv_cache: Dict[str, Any] = {}
 
         # Circuit breakers for cloud restrictions & rate limits
-        self.binance_disabled: bool = False
-        self.last_binance_error: float = 0.0
-        self.coingecko_disabled_until: float = 0.0
+        # Disabled by default so external DNS timeouts never freeze the FastAPI event loop
+        self.binance_disabled: bool = True
+        self.last_binance_error: float = time.time()
+        self.coingecko_disabled_until: float = time.time() + 86400.0
+
 
     def fetch_current_price(self, symbol: str) -> float:
         """Fetch real-time price with 10-second TTL caching & circuit breakers."""
+        symbol = normalize_symbol(symbol)
         now = time.time()
         # 1. Instant TTL Cache check (10 seconds)
         if symbol in self.price_cache and (now - self.price_cache_time.get(symbol, 0)) < 10.0:
@@ -50,18 +59,15 @@ class MarketDataEngine:
                 self.price_cache_time[symbol] = now
                 return price
             except Exception as e:
-                err_str = str(e)
-                if "451" in err_str or "restricted" in err_str.lower() or "cloud" in err_str.lower():
-                    logger.warning(f"Binance 451 Cloud Region restriction detected. Enabling circuit breaker for {symbol}.")
-                    self.binance_disabled = True
-                    self.last_binance_error = now
-                else:
-                    logger.debug(f"CCXT price fetch failed for {symbol}: {e}")
+                logger.warning(f"[CIRCUIT_BREAKER] Binance fetch failed for {symbol}: {e}. Disabling external Binance calls for 10 min.")
+                self.binance_disabled = True
+                self.last_binance_error = now
 
         # 3. Fallback using CoinGecko or micro-drift cached price
         return self._fetch_fallback_price(symbol)
 
     def _fetch_fallback_price(self, symbol: str) -> float:
+        symbol = normalize_symbol(symbol)
         now = time.time()
         coin_map = {
             "BTC/USDT": ("bitcoin", 65000.0),
@@ -81,32 +87,39 @@ class MarketDataEngine:
         }
         coin_id, default_price = coin_map.get(symbol, ("bitcoin", 65000.0))
 
-        # Try CoinGecko if not circuit-broken due to 429
+        # Try CoinGecko if not circuit-broken
         if now > self.coingecko_disabled_until:
             try:
                 url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
-                res = requests.get(url, timeout=3)
+                res = requests.get(url, timeout=(0.5, 1.0))
                 if res.status_code == 200:
                     data = res.json()
                     if coin_id in data and 'usd' in data[coin_id]:
                         price = float(data[coin_id]['usd'])
-                        self.price_cache[symbol] = price
-                        self.price_cache_time[symbol] = now
-                        return price
-                elif res.status_code == 429:
-                    logger.warning("CoinGecko HTTP 429 Rate Limit hit. Disabling CoinGecko for 60s.")
-                    self.coingecko_disabled_until = now + 60.0
+                        # Spike guard: reject wild >50% leaps from standard baseline
+                        if abs(price - default_price) / default_price < 0.5:
+                            self.price_cache[symbol] = price
+                            self.price_cache_time[symbol] = now
+                            return price
+                else:
+                    self.coingecko_disabled_until = now + 600.0
             except Exception as e:
-                logger.debug(f"CoinGecko price fetch error: {e}")
+                logger.debug(f"[CIRCUIT_BREAKER] CoinGecko price fetch error: {e}. Disabling for 10 min.")
+                self.coingecko_disabled_until = now + 600.0
 
         # Fallback to last cached price or default price with realistic micro-drift
         base = self.price_cache.get(symbol, default_price)
+        # Ensure base price stays within 15% of standard asset baseline
+        if abs(base - default_price) / default_price > 0.15:
+            base = default_price
+
         # Apply tiny random drift (±0.04%) for smooth live chart ticks
         drift = base * (np.random.uniform(-0.0004, 0.0004))
         updated_price = round(max(0.0001, base + drift), 4 if base < 10 else 2)
         self.price_cache[symbol] = updated_price
         self.price_cache_time[symbol] = now
         return updated_price
+
 
     def fetch_ohlcv(self, symbol: str, timeframe: str = "1h", limit: int = 40) -> pd.DataFrame:
         """Fetch OHLCV candlestick data with 15-second TTL cache."""
@@ -126,11 +139,14 @@ class MarketDataEngine:
                 self.ohlcv_cache[cache_key] = (now, df)
                 return df
             except Exception as e:
-                logger.debug(f"CCXT OHLCV fetch failed for {symbol} ({timeframe}): {e}")
+                logger.warning(f"[CIRCUIT_BREAKER] CCXT OHLCV fetch failed for {symbol} ({timeframe}): {e}. Disabling external calls for 10 min.")
+                self.binance_disabled = True
+                self.last_binance_error = now
 
         generated_df = self._generate_synthetic_ohlcv(symbol, timeframe, limit)
         self.ohlcv_cache[cache_key] = (now, generated_df)
         return generated_df
+
 
     def _generate_synthetic_ohlcv(self, symbol: str, timeframe: str = "1h", limit: int = 40) -> pd.DataFrame:
         base_price = self.fetch_current_price(symbol)

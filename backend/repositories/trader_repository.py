@@ -52,7 +52,9 @@ class TraderRepository:
                             "total_value": portfolio.total_value,
                             "auto_bot_enabled": portfolio.auto_bot_enabled,
                             "active_strategy": portfolio.active_strategy,
-                            "risk_mode": portfolio.risk_mode
+                            "risk_mode": portfolio.risk_mode,
+                            "default_allocation_usd": getattr(portfolio, "default_allocation_usd", 1000.0),
+                            "default_leverage": getattr(portfolio, "default_leverage", 1)
                         }
                         logger.info(f"[DB_LOAD] Portfolio state loaded for user_id={user_id}: {data}")
                         return data
@@ -75,10 +77,12 @@ class TraderRepository:
         auto_bot_enabled: bool,
         active_strategy: str,
         risk_mode: str,
+        default_allocation_usd: float = 1000.0,
+        default_leverage: int = 1,
         user_id: Optional[int] = None
     ):
         """Persist portfolio balance and bot configuration for user_id to DB."""
-        logger.info(f"[DB_WRITE_PORTFOLIO] Attempting save_portfolio_state for user_id={user_id}: balance=${usdt_balance}, margin=${margin_used}, total=${total_value}")
+        logger.info(f"[DB_WRITE_PORTFOLIO] Attempting save_portfolio_state for user_id={user_id}: balance=${usdt_balance}, margin=${margin_used}, total=${total_value}, default_alloc=${default_allocation_usd}, default_lev={default_leverage}x")
         max_retries = 5
         for attempt in range(1, max_retries + 1):
             try:
@@ -100,7 +104,9 @@ class TraderRepository:
                             total_value=total_value,
                             auto_bot_enabled=auto_bot_enabled,
                             active_strategy=active_strategy,
-                            risk_mode=risk_mode
+                            risk_mode=risk_mode,
+                            default_allocation_usd=default_allocation_usd,
+                            default_leverage=default_leverage
                         )
                         session.add(portfolio)
                     else:
@@ -111,10 +117,15 @@ class TraderRepository:
                         portfolio.auto_bot_enabled = auto_bot_enabled
                         portfolio.active_strategy = active_strategy
                         portfolio.risk_mode = risk_mode
+                        if hasattr(portfolio, "default_allocation_usd"):
+                            portfolio.default_allocation_usd = default_allocation_usd
+                        if hasattr(portfolio, "default_leverage"):
+                            portfolio.default_leverage = default_leverage
 
                     await session.commit()
                     logger.info(f"[DB_COMMIT_PORTFOLIO] Portfolio state committed successfully for user_id={user_id}.")
                     return
+
             except Exception as e:
                 logger.warning(f"[DB_WRITE_PORTFOLIO_RETRY {attempt}/{max_retries}] Exception saving portfolio state for user_id={user_id}: {e}")
                 if attempt == max_retries:

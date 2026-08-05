@@ -17,6 +17,29 @@ export class ApiError extends Error {
   }
 }
 
+function getApiCandidateBases(): string[] {
+  const candidates: string[] = [];
+
+  // 1. Relative path for Next.js port 3000 dev server & rewrites
+  candidates.push("");
+
+  if (API_BASE && !API_BASE.includes("example.com")) {
+    candidates.push(API_BASE);
+  }
+  
+  if (typeof window !== "undefined" && window.location?.hostname) {
+    const host = window.location.hostname;
+    const port = window.location.port ? `:${window.location.port}` : "";
+    candidates.push(`${window.location.protocol}//${host}${port}`);
+    candidates.push(`http://${host}:8000`);
+  }
+
+  candidates.push("http://127.0.0.1:8000");
+  candidates.push("http://localhost:8000");
+
+  return Array.from(new Set(candidates));
+}
+
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const token = typeof window !== "undefined" ? localStorage.getItem("lumo_access_token") : null;
   const headers: Record<string, string> = {
@@ -28,17 +51,36 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  let response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers,
-    credentials: "include",
-    cache: "no-store"
-  });
+  const bases = getApiCandidateBases();
+  let response: Response | null = null;
+
+  for (const base of bases) {
+    try {
+      const res = await fetch(`${base}${path}`, {
+        ...init,
+        headers,
+        credentials: "include",
+        cache: "no-store"
+      });
+      if (res && (res.ok || res.status < 500)) {
+        response = res;
+        break;
+      }
+    } catch (err) {
+      // Continue to next candidate host
+    }
+  }
+
+  if (!response) {
+    throw new ApiError("Unable to connect to Lumo Trading backend server. Please verify python main.py backend process is running.", 0);
+  }
+
 
   // Handle Token Refresh on 401 Unauthorized
   if (response.status === 401 && path !== "/api/auth/login" && path !== "/api/auth/register" && path !== "/api/auth/refresh") {
     try {
-      const refreshRes = await fetch(`${API_BASE}/api/auth/refresh`, {
+      const activeBase = bases[0] || "http://127.0.0.1:8000";
+      const refreshRes = await fetch(`${activeBase}/api/auth/refresh`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include"
@@ -51,21 +93,33 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
           headers["Authorization"] = `Bearer ${refreshData.access_token}`;
 
           // Retry original request with new token
-          response = await fetch(`${API_BASE}${path}`, {
-            ...init,
-            headers,
-            credentials: "include",
-            cache: "no-store"
-          });
+          for (const base of bases) {
+            try {
+              const retryRes = await fetch(`${base}${path}`, {
+                ...init,
+                headers,
+                credentials: "include",
+                cache: "no-store"
+              });
+              if (retryRes) {
+                response = retryRes;
+                break;
+              }
+            } catch (e) {
+              // Try next base
+            }
+          }
         }
       }
-    } catch {
-      // Ignore refresh error and proceed to return response
+    } catch (e) {
+      // Fallthrough to handle original response
     }
   }
 
   return response;
 }
+
+
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(path, init);
@@ -154,11 +208,13 @@ export async function toggleBot(enable: boolean): Promise<{ status: string; mess
   });
 }
 
-export async function setStrategy(strategy_name: string, risk_mode: string = "Moderate"): Promise<{ status: string; message: string }> {
-  return requestJson<{ status: string; message: string }>(`/api/bot/strategy?strategy_name=${encodeURIComponent(strategy_name)}&risk_mode=${encodeURIComponent(risk_mode)}`, {
-    method: "POST"
+export async function setStrategy(strategy_name: string, risk_mode: string = "Moderate"): Promise<{ status: string; message: string; strategy_name?: string; risk_mode?: string }> {
+  return requestJson<{ status: string; message: string; strategy_name?: string; risk_mode?: string }>(`/api/bot/strategy?strategy_name=${encodeURIComponent(strategy_name)}&risk_mode=${encodeURIComponent(risk_mode)}`, {
+    method: "POST",
+    body: JSON.stringify({ strategy_name, risk_mode })
   });
 }
+
 
 export async function depositVirtualFunds(amount: number): Promise<{ status: string; message: string; usdt_balance: number }> {
   return requestJson<{ status: string; message: string; usdt_balance: number }>("/api/wallet/deposit", {
@@ -175,3 +231,25 @@ export async function withdrawVirtualFunds(amount: number): Promise<{ status: st
     body: JSON.stringify({ amount })
   });
 }
+
+export async function resetPaperAccount(): Promise<{ status: string; message: string }> {
+  return requestJson<{ status: string; message: string }>("/api/wallet/reset-paper-account", {
+    method: "POST"
+  });
+}
+
+export async function deleteUserAccount(): Promise<{ status: string; message: string }> {
+  return requestJson<{ status: string; message: string }>("/api/user/delete-account", {
+    method: "DELETE"
+  });
+}
+
+export async function saveExecutionParameters(default_allocation_usd: number, default_leverage: number): Promise<{ status: string; message: string; default_allocation_usd: number; default_leverage: number }> {
+  return requestJson<{ status: string; message: string; default_allocation_usd: number; default_leverage: number }>("/api/bot/parameters", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ default_allocation_usd, default_leverage })
+  });
+}
+
+

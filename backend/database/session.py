@@ -11,8 +11,9 @@ Base = declarative_base()
 # Configure Async Database Engine
 ASYNC_DB_URL = settings.ASYNC_DATABASE_URL
 
-# SQLite vs PostgreSQL async pool handling
-connect_args = {"check_same_thread": False, "timeout": 30} if "sqlite" in ASYNC_DB_URL else {}
+from sqlalchemy import event
+
+connect_args = {"check_same_thread": False, "timeout": 30.0} if "sqlite" in ASYNC_DB_URL else {}
 
 async_engine = create_async_engine(
     ASYNC_DB_URL,
@@ -20,6 +21,17 @@ async_engine = create_async_engine(
     connect_args=connect_args,
     future=True
 )
+
+@event.listens_for(async_engine.sync_engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    try:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.close()
+    except Exception as e:
+        logger.warning(f"Failed to set SQLite PRAGMAs: {e}")
 
 
 AsyncSessionLocal = async_sessionmaker(
@@ -34,13 +46,13 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
         try:
             yield session
-            await session.commit()
         except Exception as e:
             await session.rollback()
             logger.error(f"Database session error: {e}")
             raise
         finally:
             await session.close()
+
 
 async def init_db():
     """Initialize database tables without dropping existing data."""

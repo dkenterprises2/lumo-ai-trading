@@ -3,10 +3,12 @@ import time
 import os
 import json
 import asyncio
+import sqlite3
 import logging
 import pandas as pd
 from typing import Optional, Dict, List, Any
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, Body, WebSocket, WebSocketDisconnect, Depends
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -17,12 +19,10 @@ from market_data import MarketDataEngine
 from sentiment_engine import SentimentEngine
 from ai_strategy import AITradingStrategy
 from trader import PaperTrader, trader_manager
-from backend.auth.security import get_current_user
+from backend.auth.security import get_current_user, get_db
 from backend.models.domain import UserModel
-from fastapi import Depends
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("main")
+from backend.core.logger import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 # Initialize Services
 market_engine = MarketDataEngine()
@@ -30,8 +30,8 @@ sentiment_engine = SentimentEngine()
 ai_strategy = AITradingStrategy()
 trader = PaperTrader(initial_balance=settings.PAPER_TRADING_INITIAL_BALANCE)
 
-
 from contextlib import asynccontextmanager
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -154,8 +154,14 @@ class PositionActionRequest(BaseModel):
     new_take_profit: Optional[float] = None
 
 class StrategyConfigRequest(BaseModel):
-    strategy_name: str
-    risk_mode: str
+    strategy_name: Optional[str] = None
+    risk_mode: Optional[str] = None
+
+class ExecutionParametersRequest(BaseModel):
+    default_allocation_usd: Optional[float] = 1000.0
+    default_leverage: Optional[int] = 1
+
+
 
 # Multi-Symbol Cache Storage for Scanner
 scanner_cache: Dict[str, Any] = {}
@@ -362,6 +368,53 @@ async def withdraw_virtual_funds(body: WalletFundsRequest, current_user: UserMod
         "transaction": tx
     }
 
+@app.post("/api/wallet/reset-paper-account")
+async def reset_user_paper_account(current_user: UserModel = Depends(get_current_user)):
+    """Reset paper trading account balance to default $10,000 USDT and clear all positions/trades."""
+    user_trader = await trader_manager.get_trader_for_user(current_user.id)
+    res = user_trader.reset_paper_account(default_balance=10000.0)
+    await user_trader.flush_persistence()
+    return res
+
+@app.delete("/api/user/delete-account")
+async def delete_user_account(
+    current_user: UserModel = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
+    """Permanently delete user account, session tokens, and all associated database records."""
+    user_id = current_user.id
+
+    # Clean up trader instance in memory
+    async with trader_manager._lock:
+        if user_id in trader_manager.traders:
+            del trader_manager.traders[user_id]
+
+    # Delete all associated database records in SQLite
+    db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+    conn = sqlite3.connect(db_file)
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM refresh_tokens WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM password_reset_tokens WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM api_keys WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM positions WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM orders WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM trades WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM pnl_snapshots WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM wallet_ledger WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM paper_portfolios WHERE user_id = ?", (user_id,))
+        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+    except Exception as e:
+        logger.error(f"[DELETE_USER_ACCOUNT] Database wipe error for user {user_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete account data.")
+    finally:
+        conn.close()
+
+    return {"status": "success", "message": "Account and all associated trading data permanently deleted."}
+
+
 
 
 @app.post("/api/trade/order")
@@ -417,14 +470,58 @@ async def manage_position(req: PositionActionRequest, current_user: UserModel = 
 
 
 @app.post("/api/bot/strategy")
-async def update_bot_strategy(req: StrategyConfigRequest, current_user: UserModel = Depends(get_current_user)):
+async def update_bot_strategy(
+    req: Optional[StrategyConfigRequest] = Body(None),
+    strategy_name: Optional[str] = Query(None),
+    risk_mode: Optional[str] = Query(None),
+    current_user: UserModel = Depends(get_current_user)
+):
     """Switch Active Bot Strategy and Risk Mode."""
+    strat = (req.strategy_name if req and req.strategy_name else strategy_name) or "AI Hybrid"
+    risk = (req.risk_mode if req and req.risk_mode else risk_mode) or "Moderate"
+
     user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    user_trader.active_strategy = req.strategy_name
-    user_trader.risk_mode = req.risk_mode
+    user_trader.active_strategy = strat
+    user_trader.risk_mode = risk
     user_trader._sync_save_portfolio()
-    logger.info(f"Bot Strategy updated for user_id={current_user.id} to: {req.strategy_name} ({req.risk_mode})")
-    return {"status": "success", "message": f"Strategy switched to {req.strategy_name} ({req.risk_mode})"}
+    logger.info(f"Bot Strategy updated for user_id={current_user.id} to: {strat} ({risk})")
+    return {
+        "status": "success",
+        "message": f"Strategy switched to {strat} ({risk})",
+        "strategy_name": strat,
+        "risk_mode": risk
+    }
+
+
+@app.post("/api/bot/parameters")
+async def update_bot_parameters(
+    req: Optional[ExecutionParametersRequest] = Body(None),
+    default_allocation_usd: Optional[float] = Query(None),
+    default_leverage: Optional[int] = Query(None),
+    current_user: UserModel = Depends(get_current_user)
+):
+    """Update Default Execution Sizing and Leverage for AI Trading Engine."""
+    alloc = (req.default_allocation_usd if req and req.default_allocation_usd is not None else default_allocation_usd) or 1000.0
+    lev = (req.default_leverage if req and req.default_leverage is not None else default_leverage) or 1
+
+    if alloc <= 0:
+        raise HTTPException(status_code=400, detail="Default allocation must be greater than 0")
+    if lev < 1 or lev > 25:
+        raise HTTPException(status_code=400, detail="Default leverage must be between 1x and 25x")
+
+    user_trader = await trader_manager.get_trader_for_user(current_user.id)
+    user_trader.default_allocation_usd = float(alloc)
+    user_trader.default_leverage = int(lev)
+    user_trader._sync_save_portfolio()
+    
+    logger.info(f"[EXECUTION_PARAMS] UserID={current_user.id} updated params: Allocation=${alloc:,.2f} USDT, Leverage={lev}x")
+    return {
+        "status": "success",
+        "message": f"Execution parameters applied: ${alloc:,.2f} USDT allocation @ {lev}x leverage",
+        "default_allocation_usd": alloc,
+        "default_leverage": lev
+    }
+
 
 @app.post("/api/bot/toggle")
 async def toggle_bot(enable: bool = Query(...), current_user: UserModel = Depends(get_current_user)):
@@ -434,6 +531,7 @@ async def toggle_bot(enable: bool = Query(...), current_user: UserModel = Depend
     status_str = "ACTIVE" if enable else "DISABLED"
     logger.info(f"Auto-Trading Bot state for user_id={current_user.id}: {status_str}")
     return {"status": "success", "message": f"Auto-Trading Bot is now {status_str}", "auto_bot_enabled": enable}
+
 
 
 # Multi-Symbol Continuous Background Scanner & Broadcast Daemon
@@ -540,8 +638,9 @@ def background_scanner_loop():
 
                     logger.info(f"[CANDIDATE #{idx}] Symbol={cand_sym} | Direction={cand_dir} | Confidence={cand_conf}% | Decision=PASSED")
 
-                    alloc = min(1500.0, user_tr.usdt_balance * 0.20)
-                    logger.info(f"[RISK_MANAGER] UserID={user_tr.user_id} | Symbol={cand_sym} | Side={cand_dir} | Alloc=${alloc:.2f} | Price=${current_prices[cand_sym]:.2f} | Decision=PASSED")
+                    alloc = getattr(user_tr, 'default_allocation_usd', 1000.0)
+                    lev = getattr(user_tr, 'default_leverage', 1)
+                    logger.info(f"[RISK_MANAGER] UserID={user_tr.user_id} | Symbol={cand_sym} | Side={cand_dir} | Alloc=${alloc:.2f} | Leverage={lev}x | Price=${current_prices[cand_sym]:.2f} | Decision=PASSED")
 
                     try:
                         res = user_tr.open_position(
@@ -551,9 +650,10 @@ def background_scanner_loop():
                             allocation_usd=alloc,
                             stop_loss_price=cand['stop_loss_price'],
                             take_profit_price=cand['take_profit_price'],
-                            leverage=1,
+                            leverage=lev,
                             reason=f"Auto-Bot 24/7 ({cand['strategy']}) Confidence: {cand_conf}%"
                         )
+
                         if res.get("status") == "success":
                             logger.info(f"[POSITION] UserID={user_tr.user_id} | Symbol={cand_sym} | OPENED SUCCESSFULLY: {res}")
                             break # Stop loop immediately after 1 successful trade execution per scan cycle
