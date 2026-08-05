@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { PortfolioState, ScannerPair } from "@/types/trading";
+import { WS_BASE_URL } from "@/lib/config";
 
 interface StreamPayload {
   type: string;
@@ -14,7 +15,7 @@ interface StreamPayload {
 
 export type TradingConnectionState = "connecting" | "live" | "retrying" | "offline";
 
-export function useTradingStream() {
+export function useTradingStream(selectedSymbol: string = "BTC/USDT") {
   const [connectionState, setConnectionState] = useState<TradingConnectionState>("connecting");
   const [latency, setLatency] = useState<number | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
@@ -33,9 +34,8 @@ export function useTradingStream() {
     const connect = () => {
       if (disposed || reconnectAttempts >= maxReconnectAttempts) return;
       setConnectionState(reconnectAttempts > 0 ? "retrying" : "connecting");
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || (apiUrl.replace(/^https:/, "wss:").replace(/^http:/, "ws:")) + "/ws/stream";
-      const ws = new WebSocket(wsUrl);
+      const ws = new WebSocket(WS_BASE_URL);
+
       wsRef.current = ws;
 
       ws.onopen = () => {

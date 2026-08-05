@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     PORT: int = Field(default=8000)
 
     # Security & Cryptography
-    SECRET_KEY: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
+    SECRET_KEY: str = Field(default="lumo-trading-jwt-secret-key-production-2026-stable-v1")
     ENCRYPTION_KEY: str = Field(
         default_factory=lambda: "e1e8Z3Q5X0R5W1R3X0R5W1R3X0R5W1R3X0R5W1R3X0Q="
     )
@@ -24,10 +24,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 Hours
 
     # Database Configuration
-    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./lumo_trading.db")
-    ASYNC_DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./lumo_trading.db")
+    DATABASE_URL: str = Field(default=f"sqlite+aiosqlite:///{os.path.abspath(os.path.join(os.path.dirname(__file__), '../../lumo_trading.db'))}")
+    ASYNC_DATABASE_URL: str = Field(default=f"sqlite+aiosqlite:///{os.path.abspath(os.path.join(os.path.dirname(__file__), '../../lumo_trading.db'))}")
     DB_POOL_SIZE: int = 10
     DB_MAX_OVERFLOW: int = 20
+
 
     # Redis Cache & PubSub
     REDIS_URL: str = Field(default="redis://localhost:6379/0")

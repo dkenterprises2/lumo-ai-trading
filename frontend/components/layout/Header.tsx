@@ -26,6 +26,9 @@ interface HeaderProps {
   onSelectStrategy: (strategy: string) => void;
 }
 
+import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
+
 export function Header({
   portfolio,
   newsSentiment,
@@ -34,6 +37,7 @@ export function Header({
   onToggleBot,
   onSelectStrategy
 }: HeaderProps) {
+  const { user } = useAuth();
   const portVal = portfolio?.total_portfolio_value;
   const dailyPnlUsd = portfolio?.daily_pnl_usd;
   const dailyPnlPct = portfolio?.daily_pnl_pct;
@@ -45,8 +49,18 @@ export function Header({
   const auditStatus = portfolio?.accounting_status ?? "PENDING";
   const isConnected = connectionState === "live";
   const formatMoney = (value: number | undefined) => value === undefined ? "—" : `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const formatSignedMoney = (value: number | undefined) => value === undefined ? "—" : `${value >= 0 ? "+" : ""}$${value.toFixed(2)}`;
-  const formatSignedPercent = (value: number | undefined) => value === undefined ? "—" : `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+  const formatSignedMoney = (value: number | undefined) => {
+
+    if (value === undefined) return "—";
+    if (value >= 0) return `+$${value.toFixed(2)}`;
+    return `-$${Math.abs(value).toFixed(2)}`;
+  };
+  const formatSignedPercent = (value: number | undefined) => {
+    if (value === undefined) return "—";
+    if (value >= 0) return `+${value.toFixed(2)}%`;
+    return `-${Math.abs(value).toFixed(2)}%`;
+  };
+
 
   return (
     <header className="space-y-4 mb-6">
@@ -112,12 +126,35 @@ export function Header({
             <span>{isBotActive ? "Auto-Bot: ACTIVE" : "Auto-Bot: OFF"}</span>
           </button>
 
+          {/* User Profile Avatar */}
+          {user ? (
+            <Link
+              href="/profile"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500/50 transition-all duration-200"
+            >
+              <img
+                src={user.avatar || "https://api.dicebear.com/7.x/avataaars/svg?seed=LumoTrader"}
+                alt={user.name}
+                className="w-6 h-6 rounded-full border border-cyan-400/40 bg-slate-900"
+              />
+              <span className="text-xs font-medium text-slate-200 max-w-[100px] truncate">{user.name}</span>
+            </Link>
+          ) : (
+            <Link
+              href="/login"
+              className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/20 transition"
+            >
+              Sign In
+            </Link>
+          )}
+
           {/* Settings Quick Icon */}
-          <button className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-100 hover:border-slate-700 transition">
+          <Link href="/settings" className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-100 hover:border-slate-700 transition">
             <Settings className="h-4 w-4" />
-          </button>
+          </Link>
         </div>
       </div>
+
 
       {/* Top Overview Cards Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

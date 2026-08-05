@@ -35,6 +35,9 @@ interface SidebarProps {
   connectionState: TradingConnectionState;
 }
 
+import { LogOut, User as UserIcon } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+
 export const sidebarItems = [
   { id: "dashboard", label: "Dashboard", href: "/", icon: LayoutDashboard },
   { id: "scanner", label: "Market Scanner", href: "/scanner", icon: Scan },
@@ -57,6 +60,7 @@ export const sidebarItems = [
 
 export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, connectionState }: SidebarProps) {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
 
   return (
     <aside
@@ -115,23 +119,42 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
         </nav>
       </div>
 
-      {/* Footer / Account Profile */}
+      {/* Footer / Account Profile & Logout */}
       <div className="p-3 border-t border-slate-800/80 bg-slate-900/40">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-cyan-500 to-purple-600 flex items-center justify-center font-bold text-white text-xs">
-            AI
+        {user ? (
+          <div className="flex items-center justify-between">
+            <Link href="/profile" className="flex items-center gap-3 overflow-hidden">
+              <img
+                src={user.avatar || "https://api.dicebear.com/7.x/avataaars/svg?seed=LumoTrader"}
+                alt={user.name}
+                className="h-9 w-9 shrink-0 rounded-full border border-cyan-500/30 bg-slate-900"
+              />
+              {!collapsed && (
+                <div className="flex flex-col overflow-hidden">
+                  <span className="text-xs font-semibold text-slate-200 truncate">{user.name}</span>
+                  <span className="text-[10px] text-cyan-400 truncate">{user.trading_mode} Mode</span>
+                </div>
+              )}
+            </Link>
+            <button
+              onClick={logout}
+              title="Sign Out"
+              className="p-2 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors"
+            >
+              <LogOut className="h-4 w-4" />
+            </button>
           </div>
-          {!collapsed && (
-            <div className="flex flex-col overflow-hidden">
-              <span className="text-xs font-semibold text-slate-200 truncate">Quantitative Trader</span>
-              <span className={`flex items-center gap-1 font-mono text-[10px] ${connectionState === "live" ? "text-emerald-400" : "text-amber-400"}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${connectionState === "live" ? "animate-pulse bg-emerald-500" : "bg-amber-500"}`}></span>
-                {connectionState.toUpperCase()}
-              </span>
-            </div>
-          )}
-        </div>
+        ) : (
+          <Link
+            href="/login"
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-xs font-semibold text-cyan-400 hover:bg-cyan-500/20 transition-colors"
+          >
+            <UserIcon className="h-4 w-4" />
+            {!collapsed && <span>Sign In</span>}
+          </Link>
+        )}
       </div>
     </aside>
   );
 }
+

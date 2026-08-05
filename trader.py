@@ -17,7 +17,8 @@ class TraderState(str, Enum):
     READY = "READY"
 
 class PaperTrader:
-    def __init__(self, initial_balance: float = settings.PAPER_TRADING_INITIAL_BALANCE):
+    def __init__(self, initial_balance: float = settings.PAPER_TRADING_INITIAL_BALANCE, user_id: Optional[int] = None):
+        self.user_id = user_id
         self.state = TraderState.BOOTING
         self.usdt_balance = float(initial_balance)
         self.initial_balance = float(initial_balance)
@@ -39,8 +40,31 @@ class PaperTrader:
 
         self.repo = TraderRepository()
         self.is_loaded = False
-        self.persistence_lock = asyncio.Lock()
+        self._persistence_lock: Optional[asyncio.Lock] = None
         self.background_tasks: set = set()
+        self.main_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    @property
+    def persistence_lock(self) -> asyncio.Lock:
+        """Get or lazily instantiate persistence Lock for current event loop."""
+        current_loop = None
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+        if self._persistence_lock is None:
+            self._persistence_lock = asyncio.Lock()
+        elif current_loop and getattr(self._persistence_lock, '_loop', None) and getattr(self._persistence_lock, '_loop') is not current_loop:
+            self._persistence_lock = asyncio.Lock()
+        return self._persistence_lock
+
+
+    def set_main_event_loop(self, loop: asyncio.AbstractEventLoop):
+        """Set main application event loop for thread-safe cross-thread coroutine scheduling."""
+        self.main_loop = loop
+
+
 
 
 
@@ -78,44 +102,44 @@ class PaperTrader:
         await self.repo.initialize_repository()
 
         # 1. Restore Portfolio State
-        portfolio_state = await self.repo.load_portfolio_state()
+        portfolio_state = await self.repo.load_portfolio_state(user_id=self.user_id)
         if portfolio_state:
             self.usdt_balance = portfolio_state["usdt_balance"]
             self.initial_balance = portfolio_state["initial_balance"]
             self.auto_bot_enabled = portfolio_state["auto_bot_enabled"]
             self.active_strategy = portfolio_state["active_strategy"]
             self.risk_mode = portfolio_state["risk_mode"]
-            logger.info(f"[RESTORE_PORTFOLIO] Restored portfolio state: ${self.usdt_balance:.2f} USDT | Strategy: {self.active_strategy}")
+            logger.info(f"[RESTORE_PORTFOLIO] Restored portfolio state for user_id={self.user_id}: ${self.usdt_balance:.2f} USDT | Strategy: {self.active_strategy}")
         else:
-            logger.info("[RESTORE_PORTFOLIO] No portfolio state found in DB, using defaults.")
+            logger.info(f"[RESTORE_PORTFOLIO] No portfolio state found in DB for user_id={self.user_id}, using defaults.")
 
         # 2. Restore Open Positions (will raise RuntimeError on retry exhaustion)
-        db_positions = await self.repo.load_open_positions()
+        db_positions = await self.repo.load_open_positions(user_id=self.user_id)
         if db_positions:
             self.positions = db_positions
-            logger.info(f"[RESTORE_POSITIONS] Restored {len(self.positions)} positions: {list(self.positions.keys())}")
+            logger.info(f"[RESTORE_POSITIONS] Restored {len(self.positions)} positions for user_id={self.user_id}: {list(self.positions.keys())}")
         else:
-            logger.info("[RESTORE_POSITIONS] 0 open positions loaded from DB.")
+            logger.info(f"[RESTORE_POSITIONS] 0 open positions loaded from DB for user_id={self.user_id}.")
 
         # 3. Restore Trade History
-        db_trades = await self.repo.load_trade_history()
+        db_trades = await self.repo.load_trade_history(user_id=self.user_id)
         if db_trades:
             self.trade_history = db_trades
-            logger.info(f"[RESTORE_TRADES] Restored {len(self.trade_history)} trade records.")
+            logger.info(f"[RESTORE_TRADES] Restored {len(self.trade_history)} trade records for user_id={self.user_id}.")
 
         # 4. Restore Equity History
-        db_equity = await self.repo.load_equity_history()
+        db_equity = await self.repo.load_equity_history(user_id=self.user_id)
         if db_equity:
             self.equity_history = db_equity
-            logger.info(f"[RESTORE_EQUITY] Restored {len(self.equity_history)} equity snapshots.")
+            logger.info(f"[RESTORE_EQUITY] Restored {len(self.equity_history)} equity snapshots for user_id={self.user_id}.")
 
         # 5. Restore Wallet Ledger
-        db_ledger = await self.repo.load_wallet_ledger()
+        db_ledger = await self.repo.load_wallet_ledger(user_id=self.user_id)
         if db_ledger:
             self.ledger = db_ledger
-            logger.info(f"[RESTORE_LEDGER] Restored {len(self.ledger)} ledger entries.")
+            logger.info(f"[RESTORE_LEDGER] Restored {len(self.ledger)} ledger entries for user_id={self.user_id}.")
         else:
-            logger.info("[RESTORE_LEDGER] Ledger empty. Creating initial DEPOSIT entry...")
+            logger.info(f"[RESTORE_LEDGER] Ledger empty for user_id={self.user_id}. Creating initial DEPOSIT entry...")
             self.usdt_balance = 0.0
             self._execute_ledger_transaction(
                 tx_type="DEPOSIT",
@@ -123,6 +147,7 @@ class PaperTrader:
                 reference_id="INIT_DEPOSIT",
                 description="Initial Capital Deposit"
             )
+
 
         # 6. State Verification Step
         logger.info(f"[STATE_TRANSITION] Changing to VERIFYING_STATE...")
@@ -153,28 +178,66 @@ class PaperTrader:
         """Await until all background persistence tasks in queue finish committing to disk."""
         while self.background_tasks:
             tasks = list(self.background_tasks)
-            await asyncio.gather(*tasks, return_exceptions=True)
+            for item in tasks:
+                if isinstance(item, asyncio.Task):
+                    await item
+                elif hasattr(item, "result"):  # concurrent.futures.Future
+                    await asyncio.wrap_future(item)
+                self.background_tasks.discard(item)
+
         async with self.persistence_lock:
             logger.info("[PERSISTENCE_FLUSH] All queued persistence tasks committed successfully.")
 
 
     def _run_serialized_db_task(self, coro):
-        """Serialize all database writes under self.persistence_lock in sequence with strong task references."""
+        """Serialize all database writes under self.persistence_lock in sequence with thread-safe execution."""
         async def _serialized_runner():
             async with self.persistence_lock:
                 try:
-                    await coro() if callable(coro) else await coro
+                    res = await coro() if callable(coro) else await coro
+                    logger.info("[SERIALIZED_RUNNER_SUCCESS] DB task executed successfully under persistence lock.")
+                    return res
                 except Exception as e:
-                    logger.error(f"[SERIALIZED_PERSISTENCE_ERROR] {e}")
+                    logger.error(f"[SERIALIZED_PERSISTENCE_ERROR] {e}", exc_info=True)
+                    raise
 
+
+        target_loop = None
         try:
-            loop = asyncio.get_running_loop()
-            if loop.is_running() and not loop.is_closed():
-                task = loop.create_task(_serialized_runner())
-                self.background_tasks.add(task)
-                task.add_done_callback(self.background_tasks.discard)
+            target_loop = asyncio.get_running_loop()
         except RuntimeError:
             pass
+
+        if target_loop is None and self.main_loop and self.main_loop.is_running():
+            target_loop = self.main_loop
+
+        if target_loop is not None and target_loop.is_running():
+            try:
+                current_loop = None
+                try:
+                    current_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    pass
+
+                if current_loop is target_loop:
+                    task = target_loop.create_task(_serialized_runner())
+                    self.background_tasks.add(task)
+                    task.add_done_callback(lambda t: self.background_tasks.discard(t))
+                else:
+                    fut = asyncio.run_coroutine_threadsafe(_serialized_runner(), target_loop)
+                    self.background_tasks.add(fut)
+                    fut.add_done_callback(lambda f: self.background_tasks.discard(f))
+            except Exception as e:
+                logger.error(f"[PERSISTENCE_SCHEDULING_ERROR] Failed to schedule DB task: {e}", exc_info=True)
+                raise RuntimeError(f"CRITICAL: Failed to schedule database task thread-safely: {e}")
+        else:
+            try:
+                asyncio.run(_serialized_runner())
+            except Exception as e:
+                logger.error(f"[PERSISTENCE_SYNC_FALLBACK_ERROR] {e}", exc_info=True)
+                raise RuntimeError(f"CRITICAL: Failed to execute database task synchronously: {e}")
+
+
 
 
     async def save_portfolio_async(self):
@@ -186,12 +249,29 @@ class PaperTrader:
             total_value=self.usdt_balance + sum(p['margin_usd'] for p in self.positions.values()),
             auto_bot_enabled=self.auto_bot_enabled,
             active_strategy=self.active_strategy,
-            risk_mode=self.risk_mode
+            risk_mode=self.risk_mode,
+            user_id=self.user_id
         )
 
     async def save_position_async(self, pos: Dict[str, Any]):
         """Awaited serialized save of position to DB."""
-        await self.repo.save_position(pos)
+        await self.repo.save_position(pos, user_id=self.user_id)
+
+    async def record_trade_async(self, trade_record: Dict[str, Any]):
+        """Awaited serialized record of trade to DB."""
+        await self.repo.record_trade(trade_record, user_id=self.user_id)
+
+    async def record_wallet_tx_async(self, tx: Dict[str, Any]):
+        """Awaited serialized record of wallet transaction to DB."""
+        await self.repo.record_wallet_transaction(tx, user_id=self.user_id)
+
+    async def save_equity_point_async(self, snapshot: Dict[str, Any]):
+        """Awaited serialized save of equity point to DB."""
+        await self.repo.save_equity_point(snapshot, user_id=self.user_id)
+
+    async def log_audit_event_async(self, event_type: str, details: str):
+        """Awaited serialized audit event log to DB."""
+        await self.repo.log_audit_event(event_type, details, user_id=self.user_id)
 
     def _sync_save_portfolio(self):
         """Serialized save of portfolio state."""
@@ -203,19 +283,21 @@ class PaperTrader:
 
     def _sync_record_trade(self, trade_record: Dict[str, Any]):
         """Serialized trade record write."""
-        self._run_serialized_db_task(lambda: self.repo.record_trade(trade_record))
+        self._run_serialized_db_task(lambda: self.record_trade_async(trade_record))
 
     def _sync_record_wallet_tx(self, tx: Dict[str, Any]):
         """Serialized wallet transaction write."""
-        self._run_serialized_db_task(lambda: self.repo.record_wallet_transaction(tx))
+        self._run_serialized_db_task(lambda: self.record_wallet_tx_async(tx))
 
     def _sync_save_equity_point(self, snapshot: Dict[str, Any]):
         """Serialized equity point write."""
-        self._run_serialized_db_task(lambda: self.repo.save_equity_point(snapshot))
+        self._run_serialized_db_task(lambda: self.save_equity_point_async(snapshot))
 
     def _sync_log_audit_event(self, event_type: str, details: str):
         """Serialized audit log write."""
-        self._run_serialized_db_task(lambda: self.repo.log_audit_event(event_type, details))
+        self._run_serialized_db_task(lambda: self.log_audit_event_async(event_type, details))
+
+
 
 
 
@@ -385,23 +467,31 @@ class PaperTrader:
         trailing_stop_pct: Optional[float] = None,
         reason: str = "Signal Execution"
     ) -> Dict[str, Any]:
+        logger.info(f"[RISK_VALIDATION] UserID={self.user_id} | Symbol={symbol} | Side={side} | Price=${price:.2f} | Alloc=${allocation_usd:.2f} | Leverage={leverage}x | MaxOpenPos={self.max_open_positions}")
+
         if symbol in self.positions:
+            logger.info(f"[RISK_REJECTION] UserID={self.user_id} | Symbol={symbol} rejected: Position already active.")
             return {"status": "error", "message": f"Position already active for {symbol}"}
 
         if len(self.positions) >= self.max_open_positions:
+            logger.info(f"[RISK_REJECTION] UserID={self.user_id} | Symbol={symbol} rejected: Max open positions limit ({self.max_open_positions}) reached.")
             return {"status": "error", "message": f"Maximum open position limit ({self.max_open_positions}) reached"}
 
         margin_required = allocation_usd / leverage
         if margin_required > self.usdt_balance:
+            logger.info(f"[RISK_ADJUSTMENT] UserID={self.user_id} | Margin required ${margin_required:.2f} > USDT balance ${self.usdt_balance:.2f}. Cap margin to ${self.usdt_balance:.2f}.")
             margin_required = self.usdt_balance
             allocation_usd = margin_required * leverage
 
         if margin_required < 5.0:
+            logger.info(f"[RISK_REJECTION] UserID={self.user_id} | Symbol={symbol} rejected: Margin required ${margin_required:.2f} < $5.0 minimum balance requirement.")
             return {"status": "error", "message": "Insufficient USDT balance to open position"}
 
+        logger.info(f"[RISK_PASSED] UserID={self.user_id} | Risk validations passed. MarginRequired=${margin_required:.2f}, Allocation=${allocation_usd:.2f}")
         amount = allocation_usd / price
         
         pos_id = f"POS_{int(time.time() * 1000)}_{symbol.replace('/', '')}"
+
 
         # Execute margin lock through double-entry ledger
 
@@ -419,6 +509,7 @@ class PaperTrader:
 
         position = {
             "id": pos_id,
+            "user_id": self.user_id,
             "symbol": symbol,
             "side": side.upper(),
             "entry_price": price,
@@ -439,6 +530,7 @@ class PaperTrader:
         # Immediately create open trade record with expanded audit fields
         trade_record = {
             "id": pos_id,
+            "user_id": self.user_id,
             "symbol": symbol,
             "side": side.upper(),
             "entry_price": price,
@@ -462,6 +554,7 @@ class PaperTrader:
             "slippage": 0.0,
             "latency": 0.005
         }
+
         self.trade_history.insert(0, trade_record)
 
         # Persist to DB
@@ -508,7 +601,8 @@ class PaperTrader:
 
         if ratio >= 0.99:
             self.positions.pop(symbol)
-            self._run_serialized_db_task(lambda: self.repo.delete_position(pos['id']))
+            self._run_serialized_db_task(lambda: self.repo.delete_position(pos['id'], user_id=self.user_id))
+
         else:
 
 
@@ -518,9 +612,11 @@ class PaperTrader:
 
         trade_record = {
             "id": pos['id'],
+            "user_id": self.user_id,
             "symbol": symbol,
             "side": side,
             "entry_price": pos['entry_price'],
+
             "exit_price": price,
             "amount": round(amount_to_close, 4),
             "margin_usd": round(margin_to_release, 2),
@@ -602,3 +698,30 @@ class PaperTrader:
 
         for symbol, price, reason in to_close:
             self.close_position(symbol, price, reason=reason)
+
+class TraderManager:
+    def __init__(self):
+        self.traders: Dict[int, PaperTrader] = {}
+        self._lock = asyncio.Lock()
+        self.main_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_main_event_loop(self, loop: asyncio.AbstractEventLoop):
+        """Set main application event loop for all existing and future user traders."""
+        self.main_loop = loop
+        for tr in self.traders.values():
+            tr.set_main_event_loop(loop)
+
+    async def get_trader_for_user(self, user_id: int) -> PaperTrader:
+        async with self._lock:
+            if user_id not in self.traders:
+                trader_instance = PaperTrader(user_id=user_id)
+                if self.main_loop:
+                    trader_instance.set_main_event_loop(self.main_loop)
+                await trader_instance.initialize_and_restore_state()
+                self.traders[user_id] = trader_instance
+            return self.traders[user_id]
+
+trader_manager = TraderManager()
+trader = PaperTrader()
+
+
