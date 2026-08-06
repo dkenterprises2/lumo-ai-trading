@@ -66,6 +66,7 @@ async def init_db():
             await conn.run_sync(Base.metadata.create_all)
 
 
+
             # Auto-migrate missing columns across all domain tables
             def auto_migrate_schema(sync_conn):
                 from sqlalchemy import inspect, text

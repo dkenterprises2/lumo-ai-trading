@@ -23,8 +23,23 @@ class TraderRepository:
         pass
 
     async def initialize_repository(self):
-        """Ensure database tables exist on startup."""
+        """Ensure database tables exist and apply schema migrations on startup."""
         await init_db()
+        async with AsyncSessionLocal() as session:
+            try:
+                from sqlalchemy import text
+                await session.execute(text("ALTER TABLE portfolio ADD COLUMN default_allocation_usd FLOAT DEFAULT 1000.0"))
+                await session.commit()
+            except Exception:
+                await session.rollback()
+
+            try:
+                from sqlalchemy import text
+                await session.execute(text("ALTER TABLE portfolio ADD COLUMN default_leverage INTEGER DEFAULT 1"))
+                await session.commit()
+            except Exception:
+                await session.rollback()
+
 
     async def load_portfolio_state(self, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Load portfolio balance and bot settings for specific user_id from database with retries."""
@@ -82,16 +97,17 @@ class TraderRepository:
         user_id: Optional[int] = None
     ):
         """Persist portfolio balance and bot configuration for user_id to DB."""
+        if user_id is None:
+            logger.warning("[DB_WRITE_PORTFOLIO] save_portfolio_state called with user_id=None, skipping DB write to protect user records.")
+            return
+
         logger.info(f"[DB_WRITE_PORTFOLIO] Attempting save_portfolio_state for user_id={user_id}: balance=${usdt_balance}, margin=${margin_used}, total=${total_value}, default_alloc=${default_allocation_usd}, default_lev={default_leverage}x")
         max_retries = 5
         for attempt in range(1, max_retries + 1):
             try:
                 async with AsyncSessionLocal() as session:
-                    stmt = select(PortfolioModel)
-                    if user_id is not None:
-                        stmt = stmt.where(PortfolioModel.user_id == user_id)
-                    else:
-                        stmt = stmt.limit(1)
+                    stmt = select(PortfolioModel).where(PortfolioModel.user_id == user_id)
+
 
                     result = await session.execute(stmt)
                     portfolio = result.scalars().first()
@@ -507,6 +523,7 @@ class TraderRepository:
                 )
                 session.add(entry)
                 await session.commit()
+                logger.info(f"[DB_JOURNAL_SAVE] Trade journal entry {entry.id} saved for user_id={effective_user_id}.")
         except Exception as e:
             logger.error(f"Error saving trade journal entry to DB for user_id={effective_user_id}: {e}")
 
@@ -528,6 +545,7 @@ class TraderRepository:
         return journal
 
     async def log_timeline_event(self, trade_id: str, symbol: str, event_type: str, description: str, metadata: Optional[Dict[str, Any]] = None, user_id: Optional[int] = None):
+
         """Record trade decision timeline step in DB."""
         from backend.models.timeline import TradeTimelineModel
         try:

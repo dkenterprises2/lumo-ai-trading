@@ -266,8 +266,13 @@ async def login_user(
     session.add(session_model)
     await session.commit()
 
+    # Restore user's PaperTrader state into TraderManager on login
+    from trader import trader_manager
+    await trader_manager.get_trader_for_user(user.id)
+
     max_age_access = int(access_delta.total_seconds())
     max_age_refresh = int(refresh_delta.total_seconds())
+
 
     response.set_cookie(key="access_token", value=access_token, httponly=True, samesite="lax", max_age=max_age_access)
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, samesite="lax", max_age=max_age_refresh)

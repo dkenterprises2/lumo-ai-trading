@@ -1,13 +1,16 @@
 import time
 import asyncio
 import logging
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Any, Optional
 from config import settings
 from backend.repositories.trader_repository import TraderRepository
+from institutional_risk import InstitutionalRiskManager, InstitutionalRiskConfig
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("trader")
+
 
 class TraderState(str, Enum):
     BOOTING = "BOOTING"
@@ -35,6 +38,10 @@ class PaperTrader:
         self.default_leverage: int = 1
         self.max_open_positions = 10
         self.daily_start_balance = float(initial_balance)
+        self.peak_equity = float(initial_balance)
+
+        self.risk_manager = InstitutionalRiskManager()
+
 
         
         self.accounting_status = "PASS"
@@ -357,17 +364,24 @@ class PaperTrader:
 
         active_positions_list = []
         for symbol, pos in self.positions.items():
+            from market_data import is_valid_price
             price = current_prices.get(symbol, pos['entry_price'])
+            if not is_valid_price(price):
+                logger.warning(f"[PNL_PROTECTION] Symbol={symbol} Candidate price ${price} is invalid. Retaining entry price ${pos['entry_price']}.")
+                price = pos['entry_price']
+
             side = pos['side']
             amount = pos['amount']
             entry_price = pos['entry_price']
             leverage = pos.get('leverage', 1)
             margin = pos.get('margin_usd', (amount * entry_price) / leverage)
 
+
             if side == "LONG":
-                pnl_usd = (price - entry_price) * amount * leverage
+                pnl_usd = (price - entry_price) * amount
             else: # SHORT
-                pnl_usd = (entry_price - price) * amount * leverage
+                pnl_usd = (entry_price - price) * amount
+
 
             pnl_pct = (pnl_usd / margin) * 100.0 if margin > 0 else 0.0
 
@@ -424,11 +438,23 @@ class PaperTrader:
         total_closed_count = len(closed_trades)
         win_rate = round((closed_winning_trades / total_closed_count) * 100.0, 1) if total_closed_count > 0 else 0.0
 
-        # Formula 4: Daily PnL = Today's Closed PnL + Today's Unrealized PnL
-        today_str = time.strftime("%Y-%m-%d")
-        today_closed_pnl = sum(t.get("pnl_usd", 0.0) for t in closed_trades if t.get("exit_time", "").startswith(today_str))
+        # Formula 4: Daily PnL = Today's Closed PnL + Today's Unrealized PnL (Timezone Robust)
+        today_local = time.strftime("%Y-%m-%d")
+        today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        def _is_today(exit_time_str: str) -> bool:
+            if not exit_time_str:
+                return False
+            s = str(exit_time_str).strip()
+            if s.startswith(today_local) or s.startswith(today_utc):
+                return True
+            date_part = s.split("T")[0].split(" ")[0]
+            return date_part == today_local or date_part == today_utc
+
+        today_closed_pnl = sum(t.get("pnl_usd", 0.0) for t in closed_trades if _is_today(t.get("exit_time", "")))
         daily_pnl_usd = today_closed_pnl + total_unrealized_pnl
         daily_pnl_pct = (daily_pnl_usd / self.initial_balance) * 100.0 if self.initial_balance > 0 else 0.0
+
 
         # Equity history point snapshot
         now_ts = time.time()
@@ -495,9 +521,25 @@ class PaperTrader:
             logger.info(f"[RISK_REJECTION] UserID={self.user_id} | Symbol={symbol} rejected: Position already active.")
             return {"status": "error", "message": f"Position already active for {symbol}"}
 
-        if len(self.positions) >= self.max_open_positions:
-            logger.info(f"[RISK_REJECTION] UserID={self.user_id} | Symbol={symbol} rejected: Max open positions limit ({self.max_open_positions}) reached.")
-            return {"status": "error", "message": f"Maximum open position limit ({self.max_open_positions}) reached"}
+        # Institutional Risk Manager 2.0 Assessment
+        risk_res = self.risk_manager.evaluate_order_risk(
+            user_trader=self,
+            symbol=symbol,
+            side=side,
+            price=price,
+            allocation_usd=allocation_usd,
+            leverage=leverage,
+            stop_loss_price=stop_loss_price,
+            take_profit_price=take_profit_price
+        )
+
+        if not risk_res["passed"]:
+            logger.warning(f"[INSTITUTIONAL_RISK_REJECTION] UserID={self.user_id} | Symbol={symbol} rejected by Rule={risk_res.get('rule')}: {risk_res.get('message')}")
+            return {"status": "error", "message": risk_res.get("message"), "rule": risk_res.get("rule")}
+
+        allocation_usd = risk_res.get("adjusted_allocation_usd", allocation_usd)
+        stop_loss_price = risk_res.get("stop_loss_price", stop_loss_price)
+        take_profit_price = risk_res.get("take_profit_price", take_profit_price)
 
         margin_required = allocation_usd / leverage
         if margin_required > self.usdt_balance:
@@ -508,6 +550,7 @@ class PaperTrader:
         if margin_required < 5.0:
             logger.info(f"[RISK_REJECTION] UserID={self.user_id} | Symbol={symbol} rejected: Margin required ${margin_required:.2f} < $5.0 minimum balance requirement.")
             return {"status": "error", "message": "Insufficient USDT balance to open position"}
+
 
         logger.info(f"[RISK_PASSED] UserID={self.user_id} | Risk validations passed. MarginRequired=${margin_required:.2f}, Allocation=${allocation_usd:.2f}")
         amount = allocation_usd / price
@@ -610,9 +653,10 @@ class PaperTrader:
         margin_to_release = pos['margin_usd'] * ratio
 
         if side == "LONG":
-            pnl_usd = (price - pos['entry_price']) * amount_to_close * pos['leverage']
+            pnl_usd = (price - pos['entry_price']) * amount_to_close
         else:
-            pnl_usd = (pos['entry_price'] - price) * amount_to_close * pos['leverage']
+            pnl_usd = (pos['entry_price'] - price) * amount_to_close
+
 
         cost_basis = margin_to_release
         pnl_pct = (pnl_usd / cost_basis) * 100.0 if cost_basis > 0 else 0.0
@@ -684,7 +728,19 @@ class PaperTrader:
         self._sync_record_trade(trade_record)
         self._sync_save_portfolio()
 
+        # Persist to Trade Journal
+        journal_entry = {
+            **trade_record,
+            "market_regime": pos.get("market_regime", "BULL_TREND"),
+            "score_breakdown": pos.get("score_breakdown", {}),
+            "explainable_reasons": pos.get("explainable_reasons", [reason]),
+            "holding_time_seconds": max(1.0, time.time() - float(pos.get("entry_time_ts", time.time() - 300))),
+            "execution_latency_ms": 1.2
+        }
+        self._run_serialized_db_task(lambda: self.repo.save_journal_entry(journal_entry, user_id=self.user_id))
+
         logger.info(f"Closed {side} {symbol} at ${price}. PnL: ${pnl_usd:.2f} ({pnl_pct:.2f}%)")
+
         return {"status": "success", "message": f"Closed {side} {symbol} at ${price}. PnL: ${pnl_usd:.2f}", "trade": trade_record}
 
     def reverse_position(self, symbol: str, price: float) -> Dict[str, Any]:
@@ -734,7 +790,7 @@ class PaperTrader:
         for symbol, price, reason in to_close:
             self.close_position(symbol, price, reason=reason)
 
-    def reset_paper_account(self, default_balance: float = 10000.0) -> Dict[str, Any]:
+    async def reset_paper_account_async(self, default_balance: float = 10000.0) -> Dict[str, Any]:
         """Reset paper trading account balance to default $10,000 USDT and completely clear positions, orders, trade history, equity history, and ledger in memory and database."""
         self.usdt_balance = float(default_balance)
         self.initial_balance = float(default_balance)
@@ -759,38 +815,46 @@ class PaperTrader:
         }
         self.ledger.append(init_tx)
 
-        # Clear database tables in SQLite for user_id (and fallback without user_id)
         try:
-            from config import settings
-            import sqlite3
-            db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-            conn = sqlite3.connect(db_file)
-            cursor = conn.cursor()
-            
-            if self.user_id is not None:
-                cursor.execute("DELETE FROM positions WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
-                cursor.execute("DELETE FROM orders WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
-                cursor.execute("DELETE FROM trades WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
-                cursor.execute("DELETE FROM equity_history WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
-                cursor.execute("DELETE FROM wallet_transactions WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
-                cursor.execute("UPDATE portfolio SET usdt_balance = ?, initial_balance = ?, margin_used = 0.0, total_value = ? WHERE user_id = ? OR user_id IS NULL", (default_balance, default_balance, default_balance, self.user_id))
-            else:
-                cursor.execute("DELETE FROM positions")
-                cursor.execute("DELETE FROM orders")
-                cursor.execute("DELETE FROM trades")
-                cursor.execute("DELETE FROM equity_history")
-                cursor.execute("DELETE FROM wallet_transactions")
-                cursor.execute("UPDATE portfolio SET usdt_balance = ?, initial_balance = ?, margin_used = 0.0, total_value = ?", (default_balance, default_balance, default_balance))
+            from backend.database.session import AsyncSessionLocal
+            from sqlalchemy import text
 
-            conn.commit()
-            conn.close()
-            logger.info(f"[RESET_PAPER_ACCOUNT] Successfully wiped positions, trades, orders, equity history & reset balance to ${default_balance:.2f} for user {self.user_id}")
+            async with AsyncSessionLocal() as session:
+                if self.user_id is not None:
+                    await session.execute(text("DELETE FROM positions WHERE user_id = :uid OR user_id IS NULL"), {"uid": self.user_id})
+                    await session.execute(text("DELETE FROM orders WHERE user_id = :uid OR user_id IS NULL"), {"uid": self.user_id})
+                    await session.execute(text("DELETE FROM trades WHERE user_id = :uid OR user_id IS NULL"), {"uid": self.user_id})
+                    await session.execute(text("DELETE FROM equity_history WHERE user_id = :uid OR user_id IS NULL"), {"uid": self.user_id})
+                    await session.execute(text("DELETE FROM wallet_transactions WHERE user_id = :uid OR user_id IS NULL"), {"uid": self.user_id})
+                    await session.execute(
+                        text("UPDATE portfolio SET usdt_balance = :bal, initial_balance = :bal, margin_used = 0.0, total_value = :bal, auto_bot_enabled = 0 WHERE user_id = :uid OR user_id IS NULL"),
+                        {"bal": default_balance, "uid": self.user_id}
+                    )
+                else:
+                    await session.execute(text("DELETE FROM positions"))
+                    await session.execute(text("DELETE FROM orders"))
+                    await session.execute(text("DELETE FROM trades"))
+                    await session.execute(text("DELETE FROM equity_history"))
+                    await session.execute(text("DELETE FROM wallet_transactions"))
+                    await session.execute(
+                        text("UPDATE portfolio SET usdt_balance = :bal, initial_balance = :bal, margin_used = 0.0, total_value = :bal, auto_bot_enabled = 0"),
+                        {"bal": default_balance}
+                    )
+
+                await session.commit()
+                logger.info(f"[RESET_PAPER_ACCOUNT] Wiped database records & reset balance to ${default_balance:.2f} for user_id={self.user_id}")
         except Exception as e:
-            logger.error(f"[RESET_PAPER_ACCOUNT] Database wipe error for user {self.user_id}: {e}", exc_info=True)
+            logger.error(f"[RESET_PAPER_ACCOUNT] Async DB wipe error for user_id={self.user_id}: {e}", exc_info=True)
 
-        self._sync_save_portfolio()
-        self._sync_record_wallet_tx(init_tx)
+        await self.save_portfolio_async()
+        await self.record_wallet_tx_async(init_tx)
         return {"status": "success", "message": f"Paper trading account, open positions, and trade history reset to default ${default_balance:,.2f} USDT."}
+
+    def reset_paper_account(self, default_balance: float = 10000.0) -> Dict[str, Any]:
+        """Synchronous wrapper for reset_paper_account_async."""
+        self._run_serialized_db_task(lambda: self.reset_paper_account_async(default_balance))
+        return {"status": "success", "message": f"Paper trading account reset to default ${default_balance:,.2f} USDT."}
+
 
 
 class TraderManager:
