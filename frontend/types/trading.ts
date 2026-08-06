@@ -114,6 +114,23 @@ export interface MarketSummary {
   chart_data: Candle[];
 }
 
+export interface SubScoreDetail {
+  score: number;
+  weight: number;
+  label: string;
+}
+
+export interface ScoreBreakdown {
+  ema_trend?: SubScoreDetail;
+  macd_momentum?: SubScoreDetail;
+  rsi_oscillator?: SubScoreDetail;
+  adx_trend_strength?: SubScoreDetail;
+  vwap_position?: SubScoreDetail;
+  obv_flow?: SubScoreDetail;
+  volume_spike?: SubScoreDetail;
+  atr_volatility?: SubScoreDetail;
+}
+
 export interface AiSignal {
   symbol: string;
   current_price: number;
@@ -130,7 +147,10 @@ export interface AiSignal {
   risk_mode: string;
   strategy: string;
   reasoning: string;
+  explainable_reasons?: string[];
+  score_breakdown?: ScoreBreakdown;
 }
+
 
 export type ScannerPair = AiSignal;
 

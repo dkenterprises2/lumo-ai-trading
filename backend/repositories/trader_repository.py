@@ -23,8 +23,23 @@ class TraderRepository:
         pass
 
     async def initialize_repository(self):
-        """Ensure database tables exist on startup."""
+        """Ensure database tables exist and apply schema migrations on startup."""
         await init_db()
+        async with AsyncSessionLocal() as session:
+            try:
+                from sqlalchemy import text
+                await session.execute(text("ALTER TABLE portfolio ADD COLUMN default_allocation_usd FLOAT DEFAULT 1000.0"))
+                await session.commit()
+            except Exception:
+                await session.rollback()
+
+            try:
+                from sqlalchemy import text
+                await session.execute(text("ALTER TABLE portfolio ADD COLUMN default_leverage INTEGER DEFAULT 1"))
+                await session.commit()
+            except Exception:
+                await session.rollback()
+
 
     async def load_portfolio_state(self, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Load portfolio balance and bot settings for specific user_id from database with retries."""
@@ -476,3 +491,56 @@ class TraderRepository:
                 await session.commit()
         except Exception as e:
             logger.error(f"Error recording audit log to DB for user_id={user_id}: {e}")
+
+    async def save_journal_entry(self, journal_data: Dict[str, Any], user_id: Optional[int] = None):
+        """Save completed trade entry into Trade Journal table."""
+        from backend.models.journal import TradeJournalModel
+        effective_user_id = user_id or journal_data.get("user_id")
+        try:
+            async with AsyncSessionLocal() as session:
+                entry = TradeJournalModel(
+                    id=str(journal_data.get("id", f"JRN_{int(time.time()*1000)}")),
+                    user_id=effective_user_id,
+                    symbol=journal_data.get("symbol", "BTC/USDT"),
+                    side=journal_data.get("side", "LONG"),
+                    strategy=journal_data.get("strategy", "AI Hybrid"),
+                    confidence=float(journal_data.get("confidence", 75.0)),
+                    market_regime=journal_data.get("market_regime", "BULL_TREND"),
+                    sentiment_score=float(journal_data.get("sentiment_score", 50.0)),
+                    score_breakdown=journal_data.get("score_breakdown", {}),
+                    reasons=journal_data.get("explainable_reasons", journal_data.get("reasons", [])),
+                    indicators=journal_data.get("indicators", {}),
+                    risk_checks=journal_data.get("risk_checks", {}),
+                    entry_price=float(journal_data.get("entry_price", 0.0)),
+                    exit_price=float(journal_data.get("exit_price", 0.0)),
+                    pnl_usd=float(journal_data.get("pnl_usd", 0.0)),
+                    pnl_pct=float(journal_data.get("pnl_pct", 0.0)),
+                    holding_time_seconds=float(journal_data.get("holding_time_seconds", 0.0)),
+                    execution_latency_ms=float(journal_data.get("execution_latency_ms", 0.0)),
+                    entry_time=str(journal_data.get("entry_time", "")),
+                    exit_time=str(journal_data.get("exit_time", "")),
+                    close_reason=str(journal_data.get("close_reason", ""))
+                )
+                session.add(entry)
+                await session.commit()
+                logger.info(f"[DB_JOURNAL_SAVE] Trade journal entry {entry.id} saved for user_id={effective_user_id}.")
+        except Exception as e:
+            logger.error(f"Error saving trade journal entry to DB for user_id={effective_user_id}: {e}")
+
+    async def get_trade_journal(self, user_id: Optional[int] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Fetch completed trade journal entries for user_id."""
+        from backend.models.journal import TradeJournalModel
+        if user_id is None:
+            return []
+        journal = []
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = select(TradeJournalModel).where(TradeJournalModel.user_id == user_id).order_by(TradeJournalModel.created_at.desc()).limit(limit)
+                result = await session.execute(stmt)
+                records = result.scalars().all()
+                for r in records:
+                    journal.append(r.to_dict())
+        except Exception as e:
+            logger.error(f"Error loading trade journal from DB for user_id={user_id}: {e}")
+        return journal
+

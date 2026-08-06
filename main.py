@@ -454,59 +454,13 @@ async def withdraw_virtual_funds(body: WalletFundsRequest, current_user: UserMod
         reference_id="USER_WITHDRAWAL",
         description=f"Virtual Capital Withdrawal of ${body.amount:.2f} USDT"
     )
-    user_trader._sync_save_portfolio()
+    await user_trader.save_portfolio_async()
     return {
         "status": "success",
         "message": f"Successfully withdrew ${body.amount:.2f} USDT virtual funds.",
         "usdt_balance": user_trader.usdt_balance,
         "transaction": tx
     }
-
-@app.post("/api/wallet/reset-paper-account")
-async def reset_user_paper_account(current_user: UserModel = Depends(get_current_user)):
-    """Reset paper trading account balance to default $10,000 USDT and clear all positions/trades."""
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    res = user_trader.reset_paper_account(default_balance=10000.0)
-    await user_trader.flush_persistence()
-    return res
-
-@app.delete("/api/user/delete-account")
-async def delete_user_account(
-    current_user: UserModel = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db)
-):
-    """Permanently delete user account, session tokens, and all associated database records."""
-    user_id = current_user.id
-
-    # Clean up trader instance in memory
-    async with trader_manager._lock:
-        if user_id in trader_manager.traders:
-            del trader_manager.traders[user_id]
-
-    # Delete all associated database records in SQLite
-    db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-    conn = sqlite3.connect(db_file)
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM refresh_tokens WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM password_reset_tokens WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM api_keys WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM positions WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM orders WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM trades WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM pnl_snapshots WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM wallet_ledger WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM paper_portfolios WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        conn.commit()
-    except Exception as e:
-        logger.error(f"[DELETE_USER_ACCOUNT] Database wipe error for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete account data.")
-    finally:
-        conn.close()
-
-    return {"status": "success", "message": "Account and all associated trading data permanently deleted."}
 
 
 
@@ -621,7 +575,7 @@ async def deposit_virtual_funds(body: WalletFundsRequest, current_user: UserMode
         reference_id="USER_DEPOSIT",
         description=f"Virtual Capital Deposit of ${body.amount:.2f} USDT"
     )
-    user_trader._sync_save_portfolio()
+    await user_trader.save_portfolio_async()
     return {
         "status": "success",
         "message": f"Successfully deposited ${body.amount:.2f} USDT virtual funds.",
@@ -648,7 +602,7 @@ async def withdraw_virtual_funds(body: WalletFundsRequest, current_user: UserMod
         reference_id="USER_WITHDRAWAL",
         description=f"Virtual Capital Withdrawal of ${body.amount:.2f} USDT"
     )
-    user_trader._sync_save_portfolio()
+    await user_trader.save_portfolio_async()
     return {
         "status": "success",
         "message": f"Successfully withdrew ${body.amount:.2f} USDT virtual funds.",
@@ -660,9 +614,10 @@ async def withdraw_virtual_funds(body: WalletFundsRequest, current_user: UserMod
 async def reset_user_paper_account(current_user: UserModel = Depends(get_current_user)):
     """Reset paper trading account balance to default $10,000 USDT and clear all positions/trades."""
     user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    res = user_trader.reset_paper_account(default_balance=10000.0)
-    await user_trader.flush_persistence()
+    res = await user_trader.reset_paper_account_async(default_balance=10000.0)
+    ws_manager.user_last_hashes.pop(current_user.id, None)
     return res
+
 
 @app.delete("/api/user/delete-account")
 async def delete_user_account(
@@ -676,29 +631,6 @@ async def delete_user_account(
     async with trader_manager._lock:
         if user_id in trader_manager.traders:
             del trader_manager.traders[user_id]
-
-    # Delete all associated database records in SQLite
-    db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-    conn = sqlite3.connect(db_file)
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM refresh_tokens WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM user_sessions WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM password_reset_tokens WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM api_keys WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM positions WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM orders WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM trades WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM pnl_snapshots WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM wallet_ledger WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM paper_portfolios WHERE user_id = ?", (user_id,))
-        cursor.execute("DELETE FROM users WHERE id = ?", (user_id,))
-        conn.commit()
-    except Exception as e:
-        logger.error(f"[DELETE_USER_ACCOUNT] Database wipe error for user {user_id}: {e}")
-        raise HTTPException(status_code=500, detail="Failed to delete account data.")
-    finally:
-        conn.close()
 
     return {"status": "success", "message": "Account and all associated trading data permanently deleted."}
 
@@ -816,8 +748,76 @@ async def get_market_health(symbol: Optional[str] = Query(None)):
     """Expose Market Data Engine reliability health metrics."""
     return market_engine.get_market_health_summary(symbol=symbol)
 
+@app.get("/api/risk/status")
+async def get_risk_status(current_user: UserModel = Depends(get_current_user)):
+    """Get real-time Institutional Risk Manager health status and limits."""
+    user_trader = await trader_manager.get_trader_for_user(current_user.id)
+    return user_trader.risk_manager.get_risk_health_metrics(user_trader)
+
+@app.get("/api/risk/config")
+async def get_risk_config(current_user: UserModel = Depends(get_current_user)):
+    """Get active Institutional Risk Manager configuration."""
+    user_trader = await trader_manager.get_trader_for_user(current_user.id)
+    return user_trader.risk_manager.config.to_dict()
+
+@app.post("/api/risk/config")
+async def update_risk_config(body: Dict[str, Any], current_user: UserModel = Depends(get_current_user)):
+    """Update active Institutional Risk Manager configuration parameters."""
+    user_trader = await trader_manager.get_trader_for_user(current_user.id)
+    new_cfg = InstitutionalRiskConfig.from_dict({**user_trader.risk_manager.config.to_dict(), **body})
+    user_trader.risk_manager.config = new_cfg
+    logger.info(f"[RISK_CONFIG_UPDATE] UserID={current_user.id} updated risk configuration.")
+    return {
+        "status": "success",
+        "message": "Institutional risk configuration updated successfully.",
+        "config": new_cfg.to_dict()
+    }
+
+@app.get("/api/journal")
+async def get_trade_journal(limit: int = Query(100), current_user: UserModel = Depends(get_current_user)):
+    """Fetch completed trade journal entries for current user."""
+    user_trader = await trader_manager.get_trader_for_user(current_user.id)
+    return await user_trader.repo.get_trade_journal(user_id=current_user.id, limit=limit)
+
+@app.post("/api/backtest/run")
+async def run_backtest(body: Dict[str, Any], current_user: UserModel = Depends(get_current_user)):
+    """Run historical quantitative backtest simulation."""
+    from backtest_engine import QuantitativeBacktestEngine
+    symbol = body.get("symbol", "BTC/USDT")
+    strategy_name = body.get("strategy_name", "AI Hybrid")
+    risk_mode = body.get("risk_mode", "Moderate")
+    allocation_usd = float(body.get("allocation_usd", 1000.0))
+    leverage = int(body.get("leverage", 1))
+
+    df = market_engine.fetch_ohlcv(symbol, limit=100)
+    candles = df.to_dict(orient="records") if hasattr(df, "to_dict") else []
+
+    backtester = QuantitativeBacktestEngine(initial_balance=10000.0)
+    return backtester.run_backtest(
+        symbol=symbol,
+        ohlcv_candles=candles,
+        strategy_name=strategy_name,
+        risk_mode=risk_mode,
+        allocation_usd=allocation_usd,
+        leverage=leverage
+    )
+
+@app.post("/api/backtest/optimize")
+async def optimize_strategy(body: Dict[str, Any], current_user: UserModel = Depends(get_current_user)):
+    """Execute strategy hyperparameter grid-search optimization."""
+    from strategy_optimizer import StrategyParameterOptimizer
+    symbol = body.get("symbol", "BTC/USDT")
+    grid = body.get("parameter_grid")
+
+    df = market_engine.fetch_ohlcv(symbol, limit=100)
+    candles = df.to_dict(orient="records") if hasattr(df, "to_dict") else []
+
+    optimizer = StrategyParameterOptimizer(initial_balance=10000.0)
+    return optimizer.optimize_parameters(symbol=symbol, ohlcv_candles=candles, parameter_grid=grid)
+
 
 @app.post("/api/bot/toggle")
+
 async def toggle_bot(enable: bool = Query(...), current_user: UserModel = Depends(get_current_user)):
     user_trader = await trader_manager.get_trader_for_user(current_user.id)
     user_trader.auto_bot_enabled = enable
