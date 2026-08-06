@@ -544,3 +544,13 @@ class TraderRepository:
             logger.error(f"Error loading trade journal from DB for user_id={user_id}: {e}")
         return journal
 
+    async def log_timeline_event(self, event_type: str = "GENERIC", details: Optional[Dict[str, Any]] = None, user_id: Optional[int] = None, *args, **kwargs):
+        """Log audit timeline event for execution tracking with flexible keyword arguments."""
+        effective_user_id = user_id if user_id is not None else kwargs.get("user_id", getattr(self, "current_user_id", 1))
+        try:
+            logger.info(f"[TIMELINE_EVENT] {event_type} logged for user_id={effective_user_id}: details={details}, kwargs={kwargs}")
+        except Exception as e:
+            logger.error(f"Error logging timeline event: {e}")
+
+
+

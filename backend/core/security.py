@@ -140,11 +140,28 @@ def decrypt_api_key(cipher_api_key: str) -> str:
         logger.error(f"Failed to decrypt API Key: {e}")
         raise ValueError("Decryption failed: Invalid cipher text or key")
 
+def mask_api_key(raw_key: str) -> str:
+    """Mask key for safe display (e.g., 'bina...1234')."""
+    if not raw_key or len(raw_key) < 8:
+        return "********"
+    return f"{raw_key[:4]}...{raw_key[-4:]}"
+
+
+class SecurityManager:
+    encrypt_api_key = staticmethod(encrypt_api_key)
+    decrypt_api_key = staticmethod(decrypt_api_key)
+    mask_api_key = staticmethod(mask_api_key)
+
+security_manager = SecurityManager()
+
 __all__ = [
     "hash_password",
     "verify_password",
     "create_access_token",
     "verify_token",
     "encrypt_api_key",
-    "decrypt_api_key"
+    "decrypt_api_key",
+    "mask_api_key",
+    "security_manager"
 ]
+
