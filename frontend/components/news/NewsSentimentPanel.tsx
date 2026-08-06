@@ -22,11 +22,11 @@ export function NewsSentimentPanel({ newsSentiment, aiSignal }: NewsSentimentPan
     <div className="space-y-4">
       {/* AI Signal Card */}
       {aiSignal && (
-        <div className="p-5 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 shadow-xl space-y-3">
+        <div className="p-5 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 shadow-xl space-y-4">
           <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
             <div className="flex items-center gap-2">
               <Bot className="h-5 w-5 text-cyan-400" />
-              <h3 className="font-bold text-slate-100 text-sm">AI Quantitative Signal</h3>
+              <h3 className="font-bold text-slate-100 text-sm">AI Quantitative Signal 2.0</h3>
             </div>
             <span
               className={`px-2.5 py-0.5 rounded-lg text-xs font-bold ${
@@ -41,13 +41,13 @@ export function NewsSentimentPanel({ newsSentiment, aiSignal }: NewsSentimentPan
             </span>
           </div>
 
-          <div className="flex items-center justify-between text-xs font-mono">
-            <div className="flex items-center gap-1.5">
+          <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+            <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 flex justify-between items-center">
               <span className="text-slate-400">Direction:</span>
               <span className="font-bold text-slate-200">{aiSignal.direction}</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-400">Confidence:</span>
+            <div className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 flex justify-between items-center">
+              <span className="text-slate-400">AI Confidence:</span>
               <span className="font-bold text-cyan-400">{aiSignal.confidence_score}%</span>
             </div>
           </div>
@@ -57,11 +57,75 @@ export function NewsSentimentPanel({ newsSentiment, aiSignal }: NewsSentimentPan
             <span>TP: ${aiSignal.take_profit_price} (+{aiSignal.take_profit_pct}%)</span>
           </div>
 
-          <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/50">
-            {aiSignal.reasoning}
-          </p>
+          {/* AI 2.0 Weighted Score Breakdown */}
+          {aiSignal.score_breakdown && (
+            <div className="space-y-2 pt-1 border-t border-slate-800/60">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+                Weighted Indicator Matrix (0-100%)
+              </span>
+              <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
+                {Object.entries(aiSignal.score_breakdown).map(([key, item]) => {
+                  if (!item) return null;
+                  const labelTitle = key.replace("_", " ").toUpperCase();
+                  const scoreColor =
+                    item.score >= 70
+                      ? "text-emerald-400"
+                      : item.score <= 30
+                      ? "text-rose-400"
+                      : "text-amber-400";
+                  return (
+                    <div
+                      key={key}
+                      className="p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-1"
+                    >
+                      <div className="flex justify-between items-center text-slate-300">
+                        <span className="truncate">{labelTitle}</span>
+                        <span className={`font-bold ${scoreColor}`}>
+                          {item.score}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${
+                            item.score >= 70
+                              ? "bg-emerald-500"
+                              : item.score <= 30
+                              ? "bg-rose-500"
+                              : "bg-amber-500"
+                          }`}
+                          style={{ width: `${item.score}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Explainable Trade Reasons */}
+          <div className="space-y-1.5 pt-1 border-t border-slate-800/60">
+            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">
+              Explainable Trade Reasons
+            </span>
+            {aiSignal.explainable_reasons && aiSignal.explainable_reasons.length > 0 ? (
+              <ul className="space-y-1.5 text-xs text-slate-300">
+                {aiSignal.explainable_reasons.map((reason, idx) => (
+                  <li key={idx} className="flex items-start gap-2 bg-slate-950/40 p-2 rounded-lg border border-slate-800/40">
+                    <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 mt-1.5 shrink-0" />
+                    <span className="leading-relaxed">{reason}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-xs text-slate-300 leading-relaxed bg-slate-950/50 p-2.5 rounded-xl border border-slate-800/50">
+                {aiSignal.reasoning}
+              </p>
+            )}
+          </div>
         </div>
       )}
+
 
       {/* News & Sentiment Feed */}
       <div className="p-5 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 shadow-xl space-y-4">

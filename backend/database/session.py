@@ -60,7 +60,9 @@ async def init_db():
         async with async_engine.begin() as conn:
             # Import models inside function to register metadata
             import backend.models.domain  # noqa: F401
+            import backend.models.journal  # noqa: F401
             await conn.run_sync(Base.metadata.create_all)
+
 
             # Auto-migrate missing columns across all domain tables
             def auto_migrate_schema(sync_conn):

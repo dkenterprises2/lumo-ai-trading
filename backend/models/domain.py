@@ -76,7 +76,10 @@ class PortfolioModel(Base):
     auto_bot_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     active_strategy: Mapped[str] = mapped_column(String(64), default="AI Hybrid")
     risk_mode: Mapped[str] = mapped_column(String(32), default="Moderate")
+    default_allocation_usd: Mapped[float] = mapped_column(Float, default=1000.0)
+    default_leverage: Mapped[int] = mapped_column(Integer, default=1)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 
 class PositionModel(Base):
     __tablename__ = "positions"

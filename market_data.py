@@ -511,7 +511,7 @@ class MarketDataEngine:
 
 
     def calculate_technical_indicators(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Compute full quantitative indicator suite on candlestick data."""
+        """Compute full quantitative indicator suite for AI Trading Engine 2.0."""
         if df.empty or len(df) < 14:
             return {"current_price": 0.0, "technical_score": 50.0}
 
@@ -519,6 +519,7 @@ class MarketDataEngine:
         highs = df['high']
         lows = df['low']
         volumes = df['volume']
+        last_price = float(closes.iloc[-1])
 
         # 1. RSI (14)
         delta = closes.diff()
@@ -528,14 +529,16 @@ class MarketDataEngine:
         rsi = 100 - (100 / (1 + rs))
         current_rsi = float(rsi.iloc[-1]) if not rsi.empty else 50.0
 
-        # 2. Moving Averages
-        sma_20 = float(closes.rolling(window=20).mean().iloc[-1])
+        # 2. EMAs (20, 50, 200, 9, 21) & SMAs
+        sma_20 = float(closes.rolling(window=min(20, len(df))).mean().iloc[-1])
         sma_50 = float(closes.rolling(window=min(50, len(df))).mean().iloc[-1])
         sma_200 = float(closes.rolling(window=min(200, len(df))).mean().iloc[-1])
 
         ema_9 = float(closes.ewm(span=9, adjust=False).mean().iloc[-1])
+        ema_20 = float(closes.ewm(span=20, adjust=False).mean().iloc[-1])
         ema_21 = float(closes.ewm(span=21, adjust=False).mean().iloc[-1])
         ema_50 = float(closes.ewm(span=50, adjust=False).mean().iloc[-1])
+        ema_200 = float(closes.ewm(span=min(200, len(df)), adjust=False).mean().iloc[-1])
 
         # 3. MACD (12, 26, 9)
         ema12 = closes.ewm(span=12, adjust=False).mean()
@@ -548,62 +551,74 @@ class MarketDataEngine:
         current_signal = float(signal_line.iloc[-1])
         current_hist = float(macd_hist.iloc[-1])
 
-        # 4. VWAP (Volume Weighted Average Price)
-        typical_price = (highs + lows + closes) / 3.0
-        vwap = float((typical_price * volumes).cumsum().iloc[-1] / (volumes.cumsum().iloc[-1] + 1e-9))
+        # 4. ADX (14) & Directional Movement (+DI, -DI)
+        up_move = highs.diff()
+        down_move = -lows.diff()
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
 
-        # 5. ATR (Average True Range 14)
         tr1 = highs - lows
         tr2 = (highs - closes.shift()).abs()
         tr3 = (lows - closes.shift()).abs()
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+        tr_smooth = pd.Series(tr).ewm(alpha=1/14, adjust=False).mean()
+        plus_dm_smooth = pd.Series(plus_dm).ewm(alpha=1/14, adjust=False).mean()
+        minus_dm_smooth = pd.Series(minus_dm).ewm(alpha=1/14, adjust=False).mean()
+
+        plus_di_series = 100 * (plus_dm_smooth / (tr_smooth + 1e-9))
+        minus_di_series = 100 * (minus_dm_smooth / (tr_smooth + 1e-9))
+        dx = 100 * (plus_di_series - minus_di_series).abs() / (plus_di_series + minus_di_series + 1e-9)
+        adx_series = dx.ewm(alpha=1/14, adjust=False).mean()
+
+        current_adx = float(adx_series.iloc[-1]) if not adx_series.empty else 20.0
+        current_pdi = float(plus_di_series.iloc[-1]) if not plus_di_series.empty else 25.0
+        current_mdi = float(minus_di_series.iloc[-1]) if not minus_di_series.empty else 25.0
+
+        if current_adx >= 40.0:
+            trend_strength_label = "VERY_STRONG"
+        elif current_adx >= 25.0:
+            trend_strength_label = "STRONG"
+        elif current_adx >= 15.0:
+            trend_strength_label = "MODERATE"
+        else:
+            trend_strength_label = "WEAK"
+
+        # 5. VWAP (Volume Weighted Average Price)
+        typical_price = (highs + lows + closes) / 3.0
+        vwap = float((typical_price * volumes).cumsum().iloc[-1] / (volumes.cumsum().iloc[-1] + 1e-9))
+
+        # 6. ATR (Average True Range 14)
         atr = float(tr.rolling(window=14).mean().iloc[-1])
 
-        # 6. Bollinger Bands (20, 2)
+        # 7. Bollinger Bands (20, 2)
         std_20 = closes.rolling(window=20).std().iloc[-1]
         bb_upper = sma_20 + (std_20 * 2)
         bb_lower = sma_20 - (std_20 * 2)
         bb_middle = sma_20
 
-        # 7. Stochastic RSI
-        rsi_min = rsi.rolling(window=14).min()
-        rsi_max = rsi.rolling(window=14).max()
-        stoch_rsi_k = float(((rsi - rsi_min) / (rsi_max - rsi_min + 1e-9) * 100).iloc[-1])
+        # 8. OBV (On-Balance Volume & OBV 20-period EMA)
+        obv_series = (np.sign(closes.diff()) * volumes).fillna(0).cumsum()
+        current_obv = float(obv_series.iloc[-1])
+        obv_ema = float(obv_series.ewm(span=20, adjust=False).mean().iloc[-1])
 
-        # 8. OBV (On-Balance Volume)
-        obv = (np.sign(closes.diff()) * volumes).fillna(0).cumsum()
-        current_obv = float(obv.iloc[-1])
+        # 9. Volume Spike Analysis (Current Volume vs 20 MA)
+        vol_ma_20 = float(volumes.rolling(window=min(20, len(df))).mean().iloc[-1]) + 1e-9
+        current_vol = float(volumes.iloc[-1])
+        volume_spike_ratio = float(current_vol / vol_ma_20)
+        is_volume_spike = bool(volume_spike_ratio >= 1.8)
 
-        # 9. Ichimoku Cloud (Tenkan-sen, Kijun-sen)
-        tenkan_sen = float((highs.rolling(window=9).max() + lows.rolling(window=9).min()).iloc[-1] / 2.0)
-        kijun_sen = float((highs.rolling(window=26).max() + lows.rolling(window=26).min()).iloc[-1] / 2.0)
-
-        # Quantitative Score (0 to 100)
-        last_price = float(closes.iloc[-1])
-        trend = "BULLISH" if ema_9 > ema_21 and last_price > sma_20 else ("BEARISH" if ema_9 < ema_21 and last_price < sma_20 else "NEUTRAL")
-
-        tech_score = 50.0
-        if current_rsi < 35:
-            tech_score += 20
-        elif current_rsi > 65:
-            tech_score -= 20
-
-        if current_hist > 0:
-            tech_score += 15
+        # 10. Overall Trend Direction
+        if ema_20 > ema_50 and ema_50 > ema_200 and last_price > ema_20:
+            trend = "STRONG_BULLISH"
+        elif ema_20 > ema_50 and last_price > sma_20:
+            trend = "BULLISH"
+        elif ema_20 < ema_50 and ema_50 < ema_200 and last_price < ema_20:
+            trend = "STRONG_BEARISH"
+        elif ema_20 < ema_50 and last_price < sma_20:
+            trend = "BEARISH"
         else:
-            tech_score -= 15
-
-        if last_price > vwap:
-            tech_score += 10
-        else:
-            tech_score -= 10
-
-        if trend == "BULLISH":
-            tech_score += 15
-        elif trend == "BEARISH":
-            tech_score -= 15
-
-        tech_score = max(0.0, min(100.0, tech_score))
+            trend = "NEUTRAL"
 
         return {
             "current_price": round(last_price, 4),
@@ -615,16 +630,24 @@ class MarketDataEngine:
             "sma_50": round(sma_50, 4),
             "sma_200": round(sma_200, 4),
             "ema_9": round(ema_9, 4),
+            "ema_20": round(ema_20, 4),
             "ema_21": round(ema_21, 4),
+            "ema_50": round(ema_50, 4),
+            "ema_200": round(ema_200, 4),
+            "adx": round(current_adx, 2),
+            "plus_di": round(current_pdi, 2),
+            "minus_di": round(current_mdi, 2),
+            "trend_strength": trend_strength_label,
             "vwap": round(vwap, 4),
             "atr": round(atr, 4),
             "bb_upper": round(bb_upper, 4),
             "bb_lower": round(bb_lower, 4),
             "bb_middle": round(bb_middle, 4),
-            "stoch_rsi_k": round(stoch_rsi_k, 2),
-            "tenkan_sen": round(tenkan_sen, 4),
-            "kijun_sen": round(kijun_sen, 4),
             "obv": round(current_obv, 2),
+            "obv_ema": round(obv_ema, 2),
+            "volume_spike_ratio": round(volume_spike_ratio, 2),
+            "is_volume_spike": is_volume_spike,
             "trend": trend,
-            "technical_score": round(tech_score, 1)
+            "technical_score": 50.0  # Will be dynamically computed by AI Engine 2.0 in ai_strategy.py
         }
+

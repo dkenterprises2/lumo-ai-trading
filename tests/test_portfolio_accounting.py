@@ -1,7 +1,12 @@
+import sys
+import os
 import pytest
 import asyncio
 from sqlalchemy import delete
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from backend.database.session import init_db, AsyncSessionLocal
+
+
 from backend.repositories.trader_repository import TraderRepository
 from backend.models.domain import PositionModel, TradeModel, EquityHistoryModel, PortfolioModel, WalletTransactionModel
 from trader import PaperTrader
@@ -64,25 +69,25 @@ async def test_portfolio_accounting_and_persistence():
     assert trader.trade_history[0]["status"] == "OPEN"
     assert trader.trade_history[0]["symbol"] == "BTC/USDT"
 
-    # Price moves to 63000 (+5% price move, 2x leverage => +10% on margin => +200 USD unrealized PnL)
+    # Price moves to 63000 (+5% price move on $2000 notional position => +100 USD unrealized PnL)
     prices = {"BTC/USDT": 63000.0}
     summary1 = trader.get_portfolio_summary(prices)
 
     # Formula check:
-    # Portfolio Value = Wallet Balance (9000) + Sum(Unrealized PnL) (200) + Margin Value (1000) = 10200.0
+    # Portfolio Value = Wallet Balance (9000) + Sum(Unrealized PnL) (100) + Margin Value (1000) = 10100.0
     assert summary1["usdt_balance"] == 9000.0
     assert summary1["margin_used"] == 1000.0
-    assert summary1["total_unrealized_pnl_usd"] == 200.0
-    assert summary1["total_portfolio_value"] == 10200.0
-    # Total Profit = Sum(Closed Trade PnL) (0) + Sum(Unrealized PnL) (200) = 200.0
-    assert summary1["total_pnl_usd"] == 200.0
-    # Daily PnL = Today's Closed PnL (0) + Today's Unrealized PnL (200) = 200.0
-    assert summary1["daily_pnl_usd"] == 200.0
+    assert summary1["total_unrealized_pnl_usd"] == 100.0
+    assert summary1["total_portfolio_value"] == 10100.0
+    # Total Profit = Sum(Closed Trade PnL) (0) + Sum(Unrealized PnL) (100) = 100.0
+    assert summary1["total_pnl_usd"] == 100.0
+    # Daily PnL = Today's Closed PnL (0) + Today's Unrealized PnL (100) = 100.0
+    assert summary1["daily_pnl_usd"] == 100.0
 
     # PnL History snapshot check
     assert len(summary1["pnl_history"]) > 0
     latest_snapshot = summary1["pnl_history"][-1]
-    assert latest_snapshot["equity"] == 10200.0
+    assert latest_snapshot["equity"] == 10100.0
     assert latest_snapshot["wallet"] == 9000.0
     assert latest_snapshot["margin"] == 1000.0
 
@@ -93,23 +98,23 @@ async def test_portfolio_accounting_and_persistence():
     res_close = trader.close_position("BTC/USDT", 63000.0, reason="Take Profit Met")
     assert res_close["status"] == "success"
 
-    # Wallet balance = 9000 + 1000 (margin released) + 200 (realized profit) = 10200.0
-    assert trader.usdt_balance == 10200.0
+    # Wallet balance = 9000 + 1000 (margin released) + 100 (realized profit) = 10100.0
+    assert trader.usdt_balance == 10100.0
 
     summary2 = trader.get_portfolio_summary(prices)
-    assert summary2["usdt_balance"] == 10200.0
+    assert summary2["usdt_balance"] == 10100.0
     assert summary2["margin_used"] == 0.0
     assert summary2["total_unrealized_pnl_usd"] == 0.0
-    assert summary2["closed_pnl_usd"] == 200.0
-    assert summary2["total_portfolio_value"] == 10200.0
-    assert summary2["total_pnl_usd"] == 200.0
+    assert summary2["closed_pnl_usd"] == 100.0
+    assert summary2["total_portfolio_value"] == 10100.0
+    assert summary2["total_pnl_usd"] == 100.0
     assert summary2["win_rate"] == 100.0
     assert summary2["total_closed_trades"] == 1
 
     # Trade History check
     assert len(summary2["trade_history"]) == 1
     assert summary2["trade_history"][0]["status"] == "CLOSED"
-    assert summary2["trade_history"][0]["pnl_usd"] == 200.0
+    assert summary2["trade_history"][0]["pnl_usd"] == 100.0
 
     # Allow async DB tasks to commit
     await trader.flush_persistence()
@@ -121,10 +126,12 @@ async def test_portfolio_accounting_and_persistence():
 
 
     restored_summary = new_trader.get_portfolio_summary(prices)
-    assert restored_summary["usdt_balance"] == 10200.0
+    assert restored_summary["usdt_balance"] == 10100.0
     assert restored_summary["margin_used"] == 0.0
-    assert restored_summary["total_portfolio_value"] == 10200.0
-    assert restored_summary["total_pnl_usd"] == 200.0
+    assert restored_summary["total_portfolio_value"] == 10100.0
+    assert restored_summary["total_pnl_usd"] == 100.0
+
     assert len(restored_summary["trade_history"]) >= 1
-    assert restored_summary["trade_history"][0]["pnl_usd"] == 200.0
+    assert restored_summary["trade_history"][0]["pnl_usd"] == 100.0
     assert len(restored_summary["pnl_history"]) > 0
+

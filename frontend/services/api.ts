@@ -238,6 +238,23 @@ export async function resetPaperAccount(): Promise<{ status: string; message: st
   });
 }
 
+export async function fetchRiskStatus(): Promise<any> {
+  return requestJson<any>("/api/risk/status");
+}
+
+export async function fetchRiskConfig(): Promise<any> {
+  return requestJson<any>("/api/risk/config");
+}
+
+export async function updateRiskConfig(payload: Record<string, any>): Promise<any> {
+  return requestJson<any>("/api/risk/config", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+}
+
+
 export async function deleteUserAccount(): Promise<{ status: string; message: string }> {
   return requestJson<{ status: string; message: string }>("/api/user/delete-account", {
     method: "DELETE"

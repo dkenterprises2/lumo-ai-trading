@@ -1,7 +1,12 @@
+import sys
+import os
 import pytest
 import asyncio
 from sqlalchemy import delete
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from backend.database.session import init_db, AsyncSessionLocal
+
+
 from backend.repositories.trader_repository import TraderRepository
 from backend.models.domain import PositionModel, TradeModel, EquityHistoryModel, PortfolioModel, WalletTransactionModel
 from trader import PaperTrader
