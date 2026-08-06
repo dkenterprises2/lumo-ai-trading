@@ -579,6 +579,19 @@ class PaperTrader:
 
         self.trade_history.insert(0, trade_record)
 
+        # Log Decision Timeline step
+        self._run_serialized_db_task(
+            lambda: self.repo.log_timeline_event(
+                trade_id=pos_id,
+                symbol=symbol,
+                event_type="ORDER_OPENED",
+                description=f"Opened {side.upper()} position at ${price:,.2f} with {leverage}x leverage. SL: ${stop_loss_price}, TP: ${take_profit_price}",
+                metadata={"reason": reason, "margin": margin_required, "leverage": leverage},
+                user_id=self.user_id
+            )
+        )
+
+
         # Persist to DB
         self._sync_save_position(position)
         self._sync_record_trade(trade_record)

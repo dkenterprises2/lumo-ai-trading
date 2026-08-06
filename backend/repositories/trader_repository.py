@@ -475,3 +475,89 @@ class TraderRepository:
                 await session.commit()
         except Exception as e:
             logger.error(f"Error recording audit log to DB for user_id={user_id}: {e}")
+
+    async def save_journal_entry(self, journal_data: Dict[str, Any], user_id: Optional[int] = None):
+        """Save completed trade entry into Trade Journal table."""
+        from backend.models.journal import TradeJournalModel
+        effective_user_id = user_id or journal_data.get("user_id")
+        try:
+            async with AsyncSessionLocal() as session:
+                entry = TradeJournalModel(
+                    id=str(journal_data.get("id", f"JRN_{int(time.time()*1000)}")),
+                    user_id=effective_user_id,
+                    symbol=journal_data.get("symbol", "BTC/USDT"),
+                    side=journal_data.get("side", "LONG"),
+                    strategy=journal_data.get("strategy", "AI Hybrid"),
+                    confidence=float(journal_data.get("confidence", 75.0)),
+                    market_regime=journal_data.get("market_regime", "BULL_TREND"),
+                    sentiment_score=float(journal_data.get("sentiment_score", 50.0)),
+                    score_breakdown=journal_data.get("score_breakdown", {}),
+                    reasons=journal_data.get("explainable_reasons", journal_data.get("reasons", [])),
+                    indicators=journal_data.get("indicators", {}),
+                    risk_checks=journal_data.get("risk_checks", {}),
+                    entry_price=float(journal_data.get("entry_price", 0.0)),
+                    exit_price=float(journal_data.get("exit_price", 0.0)),
+                    pnl_usd=float(journal_data.get("pnl_usd", 0.0)),
+                    pnl_pct=float(journal_data.get("pnl_pct", 0.0)),
+                    holding_time_seconds=float(journal_data.get("holding_time_seconds", 0.0)),
+                    execution_latency_ms=float(journal_data.get("execution_latency_ms", 0.0)),
+                    entry_time=str(journal_data.get("entry_time", "")),
+                    exit_time=str(journal_data.get("exit_time", "")),
+                    close_reason=str(journal_data.get("close_reason", ""))
+                )
+                session.add(entry)
+                await session.commit()
+        except Exception as e:
+            logger.error(f"Error saving trade journal entry to DB for user_id={effective_user_id}: {e}")
+
+    async def get_trade_journal(self, user_id: Optional[int] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Fetch completed trade journal entries for user_id."""
+        from backend.models.journal import TradeJournalModel
+        if user_id is None:
+            return []
+        journal = []
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = select(TradeJournalModel).where(TradeJournalModel.user_id == user_id).order_by(TradeJournalModel.created_at.desc()).limit(limit)
+                result = await session.execute(stmt)
+                records = result.scalars().all()
+                for r in records:
+                    journal.append(r.to_dict())
+        except Exception as e:
+            logger.error(f"Error loading trade journal from DB for user_id={user_id}: {e}")
+        return journal
+
+    async def log_timeline_event(self, trade_id: str, symbol: str, event_type: str, description: str, metadata: Optional[Dict[str, Any]] = None, user_id: Optional[int] = None):
+        """Record trade decision timeline step in DB."""
+        from backend.models.timeline import TradeTimelineModel
+        try:
+            async with AsyncSessionLocal() as session:
+                entry = TradeTimelineModel(
+                    trade_id=trade_id,
+                    user_id=user_id,
+                    symbol=symbol,
+                    event_type=event_type,
+                    description=description,
+                    event_metadata=metadata or {},
+                    timestamp=time.time()
+                )
+                session.add(entry)
+                await session.commit()
+        except Exception as e:
+            logger.error(f"Error logging timeline event for trade_id={trade_id}: {e}")
+
+    async def get_trade_timeline(self, trade_id: str) -> List[Dict[str, Any]]:
+        """Fetch decision timeline steps for trade_id."""
+        from backend.models.timeline import TradeTimelineModel
+        steps = []
+        try:
+            async with AsyncSessionLocal() as session:
+                stmt = select(TradeTimelineModel).where(TradeTimelineModel.trade_id == trade_id).order_by(TradeTimelineModel.timestamp.asc())
+                result = await session.execute(stmt)
+                records = result.scalars().all()
+                for r in records:
+                    steps.append(r.to_dict())
+        except Exception as e:
+            logger.error(f"Error loading timeline for trade_id={trade_id}: {e}")
+        return steps
+
