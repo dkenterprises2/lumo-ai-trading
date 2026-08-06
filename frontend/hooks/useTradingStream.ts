@@ -8,9 +8,16 @@ interface StreamPayload {
   type: string;
   prices?: Record<string, number>;
   portfolio?: PortfolioState;
+  positions?: any[];
   scanner?: {
     all_pairs: ScannerPair[];
   };
+  bot_status?: {
+    auto_bot_enabled: boolean;
+    active_strategy: string;
+    risk_mode: string;
+  };
+  market_data?: Record<string, any>;
 }
 
 export type TradingConnectionState = "connecting" | "live" | "retrying" | "offline";
@@ -20,7 +27,10 @@ export function useTradingStream(selectedSymbol: string = "BTC/USDT") {
   const [latency, setLatency] = useState<number | null>(null);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
   const [portfolio, setPortfolio] = useState<PortfolioState | null>(null);
+  const [positions, setPositions] = useState<any[]>([]);
   const [scannerPairs, setScannerPairs] = useState<ScannerPair[]>([]);
+  const [botStatus, setBotStatus] = useState<any>(null);
+  const [marketData, setMarketData] = useState<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const lastPingRef = useRef<number | null>(null);
 
@@ -34,7 +44,10 @@ export function useTradingStream(selectedSymbol: string = "BTC/USDT") {
     const connect = () => {
       if (disposed || reconnectAttempts >= maxReconnectAttempts) return;
       setConnectionState(reconnectAttempts > 0 ? "retrying" : "connecting");
-      const ws = new WebSocket(WS_BASE_URL);
+
+      const token = typeof window !== "undefined" ? localStorage.getItem("lumo_access_token") : null;
+      const wsUrl = token ? `${WS_BASE_URL}?token=${encodeURIComponent(token)}` : WS_BASE_URL;
+      const ws = new WebSocket(wsUrl);
 
       wsRef.current = ws;
 
@@ -60,7 +73,10 @@ export function useTradingStream(selectedSymbol: string = "BTC/USDT") {
           } else if (data.type === "TICKER_UPDATE") {
             if (data.prices) setLivePrices(prev => ({ ...prev, ...data.prices }));
             if (data.portfolio) setPortfolio(data.portfolio);
+            if (data.positions) setPositions(data.positions);
             if (data.scanner?.all_pairs) setScannerPairs(data.scanner.all_pairs);
+            if (data.bot_status) setBotStatus(data.bot_status);
+            if (data.market_data) setMarketData(data.market_data);
           }
         } catch { /* Ignore malformed messages and retain the last valid state. */ }
       };
@@ -96,13 +112,16 @@ export function useTradingStream(selectedSymbol: string = "BTC/USDT") {
     };
   }, []);
 
-
   return {
-    isConnected: connectionState === "live",
     connectionState,
+    isConnected: connectionState === "live",
     latency,
     livePrices,
     portfolio,
-    scannerPairs
+    positions,
+    scannerPairs,
+    botStatus,
+    marketData
   };
+
 }
