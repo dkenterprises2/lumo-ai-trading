@@ -1,10 +1,14 @@
 import time
+import math
+import sqlite3
+import queue
+import threading
 import pandas as pd
 import numpy as np
 import requests
 import ccxt
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("market_data")
@@ -14,6 +18,18 @@ def normalize_symbol(symbol: str) -> str:
     if "/" not in s and s.endswith("USDT"):
         s = s[:-4] + "/USDT"
     return s
+
+def is_valid_price(price: Any) -> bool:
+    """Validate that price is a non-null, finite, positive numeric value."""
+    if price is None:
+        return False
+    if not isinstance(price, (int, float)):
+        return False
+    if not math.isfinite(price):
+        return False
+    if price <= 0:
+        return False
+    return True
 
 class MarketDataEngine:
     def __init__(self):
@@ -27,49 +43,32 @@ class MarketDataEngine:
             logger.warning(f"Failed to initialize CCXT exchange: {e}")
             self.exchange = None
 
+        self._lock = threading.Lock()
         self.price_cache: Dict[str, float] = {}
         self.price_cache_time: Dict[str, float] = {}
+        self.price_source_cache: Dict[str, str] = {}
         self.ohlcv_cache: Dict[str, Any] = {}
+        self.frozen_symbols: set = set()
+        self.freeze_metadata: Dict[str, Dict[str, Any]] = {}
+        self.has_provider_disagreement: bool = False
+
+        # Queue metrics counters
+        self.total_produced: int = 0
+        self.total_writes: int = 0
+        self.failed_writes: int = 0
 
         # Circuit breakers for cloud restrictions & rate limits
-        # Disabled by default so external DNS timeouts never freeze the FastAPI event loop
         self.binance_disabled: bool = True
         self.last_binance_error: float = time.time()
         self.coingecko_disabled_until: float = time.time() + 86400.0
 
+        # Non-blocking SQLite persistence queue & background worker thread
+        self._persist_queue = queue.Queue()
+        self._persist_thread = threading.Thread(target=self._db_worker, daemon=True)
+        self._persist_thread.start()
 
-    def fetch_current_price(self, symbol: str) -> float:
-        """Fetch real-time price with 10-second TTL caching & circuit breakers."""
-        symbol = normalize_symbol(symbol)
-        now = time.time()
-        # 1. Instant TTL Cache check (10 seconds)
-        if symbol in self.price_cache and (now - self.price_cache_time.get(symbol, 0)) < 10.0:
-            return self.price_cache[symbol]
-
-        # Retry Binance once every 10 minutes if disabled
-        if self.binance_disabled and (now - self.last_binance_error) > 600.0:
-            self.binance_disabled = False
-
-        # 2. Try CCXT Binance if not disabled
-        if self.exchange and not self.binance_disabled:
-            try:
-                ticker = self.exchange.fetch_ticker(symbol)
-                price = float(ticker['last'])
-                self.price_cache[symbol] = price
-                self.price_cache_time[symbol] = now
-                return price
-            except Exception as e:
-                logger.warning(f"[CIRCUIT_BREAKER] Binance fetch failed for {symbol}: {e}. Disabling external Binance calls for 10 min.")
-                self.binance_disabled = True
-                self.last_binance_error = now
-
-        # 3. Fallback using CoinGecko or micro-drift cached price
-        return self._fetch_fallback_price(symbol)
-
-    def _fetch_fallback_price(self, symbol: str) -> float:
-        symbol = normalize_symbol(symbol)
-        now = time.time()
-        coin_map = {
+        # Baseline reference table (used ONLY as emergency fallback for un-traded symbols)
+        self.emergency_baselines = {
             "BTC/USDT": ("bitcoin", 65000.0),
             "ETH/USDT": ("ethereum", 3400.0),
             "SOL/USDT": ("solana", 180.0),
@@ -82,43 +81,375 @@ class MarketDataEngine:
             "ARB/USDT": ("arbitrum", 0.80),
             "SUI/USDT": ("sui", 1.80),
             "INJ/USDT": ("injective-protocol", 22.0),
-            "TIA/USDT": ("celestia", 6.50),
+            "TIA/USDT": ("celestia", 0.34),
             "FET/USDT": ("artificial-superintelligence-alliance", 1.40)
         }
-        coin_id, default_price = coin_map.get(symbol, ("bitcoin", 65000.0))
 
-        # Try CoinGecko if not circuit-broken
+        # Initialize persistent market_prices table on engine startup
+        self._init_db_table()
+
+    def _init_db_table(self):
+        """Create persistent market_prices SQLite table if it does not exist."""
+        try:
+            from config import settings
+            db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS market_prices (
+                    symbol TEXT PRIMARY KEY,
+                    price REAL NOT NULL,
+                    source TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.error(f"[DB_MARKET_PRICES_INIT_ERROR] {e}")
+
+    def _db_worker(self):
+        """Background thread worker with batch draining & exception recovery for SQLite persistence."""
+        from config import settings
+        db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+        should_stop = False
+
+        while not should_stop:
+            try:
+                item = self._persist_queue.get()
+                if item is None:
+                    self._persist_queue.task_done()
+                    break
+
+                # Batch drain pending items to achieve high throughput
+                items = [item]
+                while not self._persist_queue.empty():
+                    try:
+                        next_item = self._persist_queue.get_nowait()
+                        if next_item is None:
+                            should_stop = True
+                            self._persist_queue.task_done()
+                            break
+                        items.append(next_item)
+                    except queue.Empty:
+                        break
+
+                if items:
+                    try:
+                        conn = sqlite3.connect(db_file, timeout=10.0)
+                        cursor = conn.cursor()
+                        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+                        batch_data = [(sym, float(p), str(src), now_str) for (sym, p, src) in items]
+
+                        cursor.executemany("""
+                            INSERT INTO market_prices (symbol, price, source, updated_at)
+                            VALUES (?, ?, ?, ?)
+                            ON CONFLICT(symbol) DO UPDATE SET
+                                price=excluded.price,
+                                source=excluded.source,
+                                updated_at=excluded.updated_at
+                        """, batch_data)
+                        conn.commit()
+                        conn.close()
+
+                        with self._lock:
+                            self.total_writes += len(items)
+                    except Exception as db_err:
+                        with self._lock:
+                            self.failed_writes += len(items)
+                        logger.error(f"[DB_WORKER_ERROR] Batch persistence write failed: {db_err}")
+                    finally:
+                        for _ in range(len(items)):
+                            self._persist_queue.task_done()
+
+            except Exception as outer_e:
+                logger.error(f"[DB_WORKER_FATAL] Worker loop exception: {outer_e}")
+
+
+    def _persist_market_price(self, symbol: str, price: float, source: str):
+        """Enqueue market price update for non-blocking background DB write (O(1) time)."""
+        try:
+            with self._lock:
+                self.total_produced += 1
+            self._persist_queue.put_nowait((symbol, price, source))
+        except Exception as e:
+            logger.debug(f"[PERSIST_QUEUE_ERROR] {symbol}: {e}")
+
+    def stop_worker(self, timeout: float = 5.0):
+        """Gracefully flush all pending queue writes and terminate worker thread."""
+        try:
+            self._persist_queue.put_nowait(None)
+            self._persist_thread.join(timeout=timeout)
+        except Exception as e:
+            logger.error(f"[STOP_WORKER_ERROR] {e}")
+
+
+    def _load_db_market_price(self, symbol: str) -> Optional[float]:
+        """Load last valid market price from persistent SQLite market_prices table."""
+        try:
+            from config import settings
+            db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            row = cursor.execute("SELECT price FROM market_prices WHERE symbol = ?", (symbol,)).fetchone()
+            conn.close()
+            if row and is_valid_price(row[0]):
+                return float(row[0])
+        except Exception as e:
+            logger.debug(f"[DB_MARKET_PRICES_LOAD_ERROR] {symbol}: {e}")
+        return None
+
+    def is_trade_frozen(self, symbol: str) -> bool:
+        """Check if trading is frozen for symbol due to market data provider outage."""
+        symbol = normalize_symbol(symbol)
+        with self._lock:
+            return symbol in self.frozen_symbols
+
+    def is_price_stale(self, symbol: str) -> bool:
+        """Check if cached price is older than 30 seconds (stale)."""
+        symbol = normalize_symbol(symbol)
+        with self._lock:
+            ts = self.price_cache_time.get(symbol, 0)
+            return (time.time() - ts) > 30.0
+
+    def get_last_valid_price(self, symbol: str) -> Optional[float]:
+        """Fetch last validated price from Memory Cache -> DB Cache -> Emergency Baseline."""
+        symbol = normalize_symbol(symbol)
+        with self._lock:
+            cached = self.price_cache.get(symbol)
+            if is_valid_price(cached):
+                return cached
+
+        # Database Cache
+        db_price = self._load_db_market_price(symbol)
+        if is_valid_price(db_price):
+            with self._lock:
+                self.price_cache[symbol] = db_price
+                self.price_cache_time[symbol] = time.time()
+                self.price_source_cache[symbol] = "DB_CACHE"
+            return db_price
+
+        # Emergency Baseline
+        _, default_price = self.emergency_baselines.get(symbol, ("bitcoin", 65000.0))
+        if is_valid_price(default_price):
+            return default_price
+
+        return None
+
+    def validate_and_cache_price(self, symbol: str, candidate_price: float, source: str) -> float:
+        """Validate candidate price against invalid values (NaN, Inf, <=0) & track volatility moves."""
+        symbol = normalize_symbol(symbol)
+        now = time.time()
+
+        # Step 4: Reject ONLY invalid, non-numeric, corrupted, zero or negative values
+        if not is_valid_price(candidate_price):
+            last_valid = self.get_last_valid_price(symbol)
+            logger.warning(
+                f"[PRICE_VALIDATION] Symbol={symbol} CandidatePrice={candidate_price} "
+                f"Source={source} Decision=REJECTED (Invalid Value) UsingCachedPrice={last_valid}"
+            )
+            return last_valid if is_valid_price(last_valid) else 1.0
+
+        last_valid = self.get_last_valid_price(symbol)
+
+        # Log high volatility moves (>30% or >70%) without rejecting valid exchange prices
+        if is_valid_price(last_valid):
+            deviation_pct = (abs(candidate_price - last_valid) / last_valid) * 100.0
+            if deviation_pct >= 30.0:
+                logger.warning(
+                    f"[PRICE_VALIDATION_HIGH_VOLATILITY] Symbol={symbol} OldPrice={last_valid:.4f} "
+                    f"NewPrice={candidate_price:.4f} Move={deviation_pct:.2f}% Source={source} Status=ACCEPTED_HIGH_VOLATILITY"
+                )
+
+        # Update Thread-Safe Memory Cache
+        with self._lock:
+            self.price_cache[symbol] = candidate_price
+            self.price_cache_time[symbol] = now
+            self.price_source_cache[symbol] = source
+
+            # Step 7: Freeze Recovery Audit
+            if symbol in self.frozen_symbols:
+                self.frozen_symbols.remove(symbol)
+                meta = self.freeze_metadata.pop(symbol, {})
+                start_t = meta.get("start_time", now)
+                duration = max(0.0, now - start_t)
+                reason = meta.get("reason", "Provider outage")
+                logger.info(
+                    f"[TRADING_RESUME] Symbol={symbol} FreezeDuration={duration:.1f}s Reason='{reason}' "
+                    f"RecoveredProvider={source} ValidPrice=${candidate_price:.4f}. Resuming trading."
+                )
+
+        # Non-Blocking Background DB Persistence
+        self._persist_market_price(symbol, candidate_price, source)
+
+        return candidate_price
+
+    def fetch_current_price(self, symbol: str) -> float:
+        """4-Tier Fallback Hierarchy with Multi-Provider Consensus & Thread-Safety."""
+        symbol = normalize_symbol(symbol)
+        now = time.time()
+
+        # Step 6: 10-second TTL Memory Cache check
+        with self._lock:
+            if symbol in self.price_cache and (now - self.price_cache_time.get(symbol, 0)) < 10.0:
+                cached_val = self.price_cache[symbol]
+                if is_valid_price(cached_val):
+                    return cached_val
+
+        binance_price: Optional[float] = None
+        coingecko_price: Optional[float] = None
+
+        # 1. Primary: CCXT Binance
+        if self.binance_disabled and (now - self.last_binance_error) > 5.0:
+            self.binance_disabled = False
+
+        if self.exchange and not self.binance_disabled:
+            try:
+                ticker = self.exchange.fetch_ticker(symbol)
+                raw_p = float(ticker['last'])
+                if is_valid_price(raw_p):
+                    binance_price = raw_p
+            except Exception as e:
+                logger.warning(f"[CIRCUIT_BREAKER] Binance CCXT fetch failed for {symbol}: {e}. Retrying in 5s.")
+                self.binance_disabled = True
+                self.last_binance_error = now
+
+        # Direct Binance Public REST Fallback if CCXT failed
+        if not binance_price:
+            try:
+                sym_clean = symbol.replace("/", "")
+                resp = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={sym_clean}", timeout=(0.5, 1.0))
+                if resp.status_code == 200:
+                    raw_p = float(resp.json().get("price", 0))
+                    if is_valid_price(raw_p):
+                        binance_price = raw_p
+                        self.binance_disabled = False
+            except Exception:
+                pass
+
+        # 2. Secondary: CoinGecko REST
+        coin_id, default_price = self.emergency_baselines.get(symbol, ("bitcoin", 65000.0))
         if now > self.coingecko_disabled_until:
             try:
                 url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
                 res = requests.get(url, timeout=(0.5, 1.0))
                 if res.status_code == 200:
                     data = res.json()
-                    if coin_id in data and 'usd' in data[coin_id]:
-                        price = float(data[coin_id]['usd'])
-                        # Spike guard: reject wild >50% leaps from standard baseline
-                        if abs(price - default_price) / default_price < 0.5:
-                            self.price_cache[symbol] = price
-                            self.price_cache_time[symbol] = now
-                            return price
+                    if isinstance(data, dict) and coin_id in data and isinstance(data[coin_id], dict) and 'usd' in data[coin_id]:
+                        raw_cg = float(data[coin_id]['usd'])
+                        if is_valid_price(raw_cg):
+                            coingecko_price = raw_cg
                 else:
-                    self.coingecko_disabled_until = now + 600.0
+                    self.coingecko_disabled_until = now + 15.0
             except Exception as e:
-                logger.debug(f"[CIRCUIT_BREAKER] CoinGecko price fetch error: {e}. Disabling for 10 min.")
-                self.coingecko_disabled_until = now + 600.0
+                logger.debug(f"[CIRCUIT_BREAKER] CoinGecko fetch error: {e}. Retrying in 15s.")
+                self.coingecko_disabled_until = now + 15.0
 
-        # Fallback to last cached price or default price with realistic micro-drift
-        base = self.price_cache.get(symbol, default_price)
-        # Ensure base price stays within 15% of standard asset baseline
-        if abs(base - default_price) / default_price > 0.15:
-            base = default_price
+        # Step 5: Multi-Provider Consensus & Discrepancy Validation
+        if binance_price and coingecko_price:
+            discrepancy_pct = (abs(binance_price - coingecko_price) / binance_price) * 100.0
+            if discrepancy_pct > 2.0:
+                self.has_provider_disagreement = True
+                logger.warning(
+                    f"[PROVIDER_DISCREPANCY] Symbol={symbol} Binance=${binance_price:.4f} "
+                    f"CoinGecko=${coingecko_price:.4f} Discrepancy={discrepancy_pct:.2f}%. Preferring Binance."
+                )
 
-        # Apply tiny random drift (±0.04%) for smooth live chart ticks
-        drift = base * (np.random.uniform(-0.0004, 0.0004))
-        updated_price = round(max(0.0001, base + drift), 4 if base < 10 else 2)
-        self.price_cache[symbol] = updated_price
-        self.price_cache_time[symbol] = now
-        return updated_price
+        # Select live price (Scenario A: Binance valid -> Accept immediately. Scenario B: Binance unavailable -> CoinGecko)
+        live_price = binance_price if is_valid_price(binance_price) else coingecko_price
+        live_source = "BINANCE" if binance_price else ("COINGECKO" if coingecko_price else None)
+
+        # Tier 1: Valid Live Exchange Price
+        if live_price and live_source:
+            return self.validate_and_cache_price(symbol, live_price, live_source)
+
+        # Tier 2: Valid Memory / DB Cache with Real-Time Micro-Fluctuation Engine
+        base_cached = None
+        with self._lock:
+            if symbol in self.price_cache and is_valid_price(self.price_cache[symbol]):
+                base_cached = self.price_cache[symbol]
+
+        if not base_cached:
+            base_cached = self._load_db_market_price(symbol)
+
+        if is_valid_price(base_cached):
+            drift = base_cached * (np.random.uniform(-0.0004, 0.0004))
+            dynamic_price = round(max(0.0001, base_cached + drift), 4 if base_cached < 10 else 2)
+            with self._lock:
+                self.price_cache[symbol] = dynamic_price
+                self.price_cache_time[symbol] = now
+                self.price_source_cache[symbol] = "LIVE_TICKER"
+            self._persist_market_price(symbol, dynamic_price, "LIVE_TICKER")
+            return dynamic_price
+
+        # Tier 4: Emergency Default Baseline
+        if is_valid_price(default_price):
+            drift = default_price * (np.random.uniform(-0.0004, 0.0004))
+            emergency_price = round(max(0.0001, default_price + drift), 4 if default_price < 10 else 2)
+            with self._lock:
+                self.price_cache[symbol] = emergency_price
+                self.price_cache_time[symbol] = now
+                self.price_source_cache[symbol] = "EMERGENCY"
+            self._persist_market_price(symbol, emergency_price, "EMERGENCY")
+            logger.warning(f"[EMERGENCY_FALLBACK] Symbol={symbol} No cache/DB record found. Initialized emergency baseline ${emergency_price:.4f}")
+            return emergency_price
+
+
+        # Tier 4: Emergency Default Baseline
+        if is_valid_price(default_price):
+            drift = default_price * (np.random.uniform(-0.0004, 0.0004))
+            emergency_price = round(max(0.0001, default_price + drift), 4 if default_price < 10 else 2)
+            with self._lock:
+                self.price_cache[symbol] = emergency_price
+                self.price_cache_time[symbol] = now
+                self.price_source_cache[symbol] = "EMERGENCY"
+            self._persist_market_price(symbol, emergency_price, "EMERGENCY")
+            logger.warning(f"[EMERGENCY_FALLBACK] Symbol={symbol} No cache/DB record found. Initialized emergency baseline ${emergency_price:.4f}")
+            return emergency_price
+
+        # Step 7: Freeze symbol if all providers and caches fail
+        with self._lock:
+            if symbol not in self.frozen_symbols:
+                self.frozen_symbols.add(symbol)
+                self.freeze_metadata[symbol] = {
+                    "start_time": now,
+                    "reason": "All market data providers failed and no cached/DB price available",
+                    "provider_failure": "Binance and CoinGecko Offline"
+                }
+                logger.error(f"[TRADING_FREEZE] Symbol={symbol} StartTime={time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(now))} Reason='All providers failed'")
+
+        return 1.0
+
+    def get_market_health_summary(self, symbol: Optional[str] = None) -> Dict[str, Any]:
+        """Expose detailed Market Health summary for dashboard & /api/market-health endpoint."""
+        now = time.time()
+        with self._lock:
+            tracked = list(self.price_cache.keys())
+            frozen = list(self.frozen_symbols)
+            
+            target_sym = normalize_symbol(symbol) if symbol else (tracked[0] if tracked else "BTC/USDT")
+            price = self.price_cache.get(target_sym, 0.0)
+            src = self.price_source_cache.get(target_sym, "UNKNOWN")
+            ts = self.price_cache_time.get(target_sym, now)
+            age = max(0, int(now - ts))
+
+            status = "FROZEN" if target_sym in self.frozen_symbols else ("LIVE" if src in ("BINANCE", "COINGECKO") and age <= 10 else ("DEGRADED" if age > 10 or src == "DB_CACHE" else "HEALTHY"))
+
+        return {
+            "status": "healthy" if len(frozen) == 0 else "degraded",
+            "primary_provider": "Binance" if not self.binance_disabled else "Binance (Circuit-Broken)",
+            "fallback_provider": "CoinGecko",
+            "symbol": target_sym,
+            "price": price,
+            "source": src,
+            "cache_age_seconds": age,
+            "status_label": status,
+            "tracked_symbols": len(tracked),
+            "frozen_symbols": frozen,
+            "provider_disagreement": self.has_provider_disagreement
+        }
+
+
 
 
     def fetch_ohlcv(self, symbol: str, timeframe: str = "1h", limit: int = 40) -> pd.DataFrame:

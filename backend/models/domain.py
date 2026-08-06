@@ -161,6 +161,15 @@ class MarketCacheModel(Base):
     price: Mapped[float] = mapped_column(Float, nullable=False)
     updated_at: Mapped[float] = mapped_column(Float, default=time.time)
 
+class MarketPriceModel(Base):
+    __tablename__ = "market_prices"
+
+    symbol: Mapped[str] = mapped_column(String(32), primary_key=True)
+    price: Mapped[float] = mapped_column(Float, nullable=False)
+    source: Mapped[str] = mapped_column(String(32), default="UNKNOWN")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+
 class NewsModel(Base):
     __tablename__ = "news"
 

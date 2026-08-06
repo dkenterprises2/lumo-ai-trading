@@ -1,6 +1,7 @@
 import time
 import asyncio
 import logging
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Dict, List, Any, Optional
 from config import settings
@@ -8,6 +9,7 @@ from backend.repositories.trader_repository import TraderRepository
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("trader")
+
 
 class TraderState(str, Enum):
     BOOTING = "BOOTING"
@@ -357,17 +359,24 @@ class PaperTrader:
 
         active_positions_list = []
         for symbol, pos in self.positions.items():
+            from market_data import is_valid_price
             price = current_prices.get(symbol, pos['entry_price'])
+            if not is_valid_price(price):
+                logger.warning(f"[PNL_PROTECTION] Symbol={symbol} Candidate price ${price} is invalid. Retaining entry price ${pos['entry_price']}.")
+                price = pos['entry_price']
+
             side = pos['side']
             amount = pos['amount']
             entry_price = pos['entry_price']
             leverage = pos.get('leverage', 1)
             margin = pos.get('margin_usd', (amount * entry_price) / leverage)
 
+
             if side == "LONG":
-                pnl_usd = (price - entry_price) * amount * leverage
+                pnl_usd = (price - entry_price) * amount
             else: # SHORT
-                pnl_usd = (entry_price - price) * amount * leverage
+                pnl_usd = (entry_price - price) * amount
+
 
             pnl_pct = (pnl_usd / margin) * 100.0 if margin > 0 else 0.0
 
@@ -424,11 +433,23 @@ class PaperTrader:
         total_closed_count = len(closed_trades)
         win_rate = round((closed_winning_trades / total_closed_count) * 100.0, 1) if total_closed_count > 0 else 0.0
 
-        # Formula 4: Daily PnL = Today's Closed PnL + Today's Unrealized PnL
-        today_str = time.strftime("%Y-%m-%d")
-        today_closed_pnl = sum(t.get("pnl_usd", 0.0) for t in closed_trades if t.get("exit_time", "").startswith(today_str))
+        # Formula 4: Daily PnL = Today's Closed PnL + Today's Unrealized PnL (Timezone Robust)
+        today_local = time.strftime("%Y-%m-%d")
+        today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        def _is_today(exit_time_str: str) -> bool:
+            if not exit_time_str:
+                return False
+            s = str(exit_time_str).strip()
+            if s.startswith(today_local) or s.startswith(today_utc):
+                return True
+            date_part = s.split("T")[0].split(" ")[0]
+            return date_part == today_local or date_part == today_utc
+
+        today_closed_pnl = sum(t.get("pnl_usd", 0.0) for t in closed_trades if _is_today(t.get("exit_time", "")))
         daily_pnl_usd = today_closed_pnl + total_unrealized_pnl
         daily_pnl_pct = (daily_pnl_usd / self.initial_balance) * 100.0 if self.initial_balance > 0 else 0.0
+
 
         # Equity history point snapshot
         now_ts = time.time()

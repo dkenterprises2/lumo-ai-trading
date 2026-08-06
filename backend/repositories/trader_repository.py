@@ -82,16 +82,17 @@ class TraderRepository:
         user_id: Optional[int] = None
     ):
         """Persist portfolio balance and bot configuration for user_id to DB."""
+        if user_id is None:
+            logger.warning("[DB_WRITE_PORTFOLIO] save_portfolio_state called with user_id=None, skipping DB write to protect user records.")
+            return
+
         logger.info(f"[DB_WRITE_PORTFOLIO] Attempting save_portfolio_state for user_id={user_id}: balance=${usdt_balance}, margin=${margin_used}, total=${total_value}, default_alloc=${default_allocation_usd}, default_lev={default_leverage}x")
         max_retries = 5
         for attempt in range(1, max_retries + 1):
             try:
                 async with AsyncSessionLocal() as session:
-                    stmt = select(PortfolioModel)
-                    if user_id is not None:
-                        stmt = stmt.where(PortfolioModel.user_id == user_id)
-                    else:
-                        stmt = stmt.limit(1)
+                    stmt = select(PortfolioModel).where(PortfolioModel.user_id == user_id)
+
 
                     result = await session.execute(stmt)
                     portfolio = result.scalars().first()
