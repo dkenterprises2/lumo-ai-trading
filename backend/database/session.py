@@ -61,10 +61,7 @@ async def init_db():
             # Import models inside function to register metadata
             import backend.models.domain  # noqa: F401
             import backend.models.journal  # noqa: F401
-            import backend.models.tick  # noqa: F401
-            import backend.models.timeline  # noqa: F401
             await conn.run_sync(Base.metadata.create_all)
-
 
 
             # Auto-migrate missing columns across all domain tables

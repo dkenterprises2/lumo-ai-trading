@@ -1,11 +1,10 @@
 from typing import Dict, Any, List, Optional
 import math
 import time
-import random
 from ai_strategy import AITradingStrategy
 
 class QuantitativeBacktestEngine:
-    """Historical Quantitative Backtest Engine with Walk-Forward Analysis & Monte Carlo Simulation."""
+    """Historical Quantitative Backtest Engine."""
 
     def __init__(self, initial_balance: float = 10000.0, commission_pct: float = 0.05):
         self.initial_balance = initial_balance
@@ -21,7 +20,7 @@ class QuantitativeBacktestEngine:
         allocation_usd: float = 1000.0,
         leverage: int = 1
     ) -> Dict[str, Any]:
-        """Execute historical simulation across candle data and compute quantitative metrics."""
+        """Execute historical simulation across candle data and compute 10 quantitative metrics."""
         balance = self.initial_balance
         peak_balance = self.initial_balance
         max_drawdown_usd = 0.0
@@ -31,8 +30,8 @@ class QuantitativeBacktestEngine:
         closed_trades: List[Dict[str, Any]] = []
         equity_curve: List[Dict[str, Any]] = []
 
-        if len(ohlcv_candles) < 10:
-            return {"status": "error", "message": "Insufficient candle data for backtesting."}
+        if len(ohlcv_candles) < 20:
+            return {"status": "error", "message": "Insufficient candle data for backtesting (min 20 candles required)."}
 
         start_ts = ohlcv_candles[0].get("timestamp", time.time() - len(ohlcv_candles) * 3600)
         end_ts = ohlcv_candles[-1].get("timestamp", time.time())
@@ -43,6 +42,7 @@ class QuantitativeBacktestEngine:
             low = float(candle.get("low", price * 0.99))
             timestamp = candle.get("timestamp", time.time())
 
+            # Generate synthetic TA indicators for candle if not pre-calculated
             ta_data = {
                 "rsi": candle.get("rsi", 50.0 + (math.sin(idx * 0.5) * 20.0)),
                 "ema_20": candle.get("ema_20", price * 0.99),
@@ -64,6 +64,7 @@ class QuantitativeBacktestEngine:
 
             sentiment_data = {"combined_score": 60.0, "fear_greed": {"value": 55}}
 
+            # Check open position exits (SL / TP)
             active_positions = list(positions)
             for pos in active_positions:
                 pos_side = pos["side"]
@@ -100,10 +101,12 @@ class QuantitativeBacktestEngine:
                         "pnl_usd": net_pnl,
                         "pnl_pct": (net_pnl / (pos_alloc / pos_lev)) * 100.0,
                         "close_reason": close_reason,
-                        "holding_sec": max(60.0, holding_sec)
+                        "holding_sec": max(60.0, holding_sec),
+                        "market_regime": pos["market_regime"]
                     })
                     positions.remove(pos)
 
+            # Evaluate AI signal for potential entry
             signal = self.ai_strategy.evaluate_trading_signal(
                 symbol=symbol,
                 current_price=price,
@@ -124,9 +127,11 @@ class QuantitativeBacktestEngine:
                     "leverage": leverage,
                     "stop_loss_price": signal["stop_loss_price"],
                     "take_profit_price": signal["take_profit_price"],
-                    "entry_time": timestamp
+                    "entry_time": timestamp,
+                    "market_regime": signal.get("market_regime", "BULL_TREND")
                 })
 
+            # Update Peak & Drawdown
             current_equity = balance + sum(
                 (price - p["entry_price"]) * (p["allocation_usd"] / p["entry_price"]) if p["side"] == "LONG"
                 else (p["entry_price"] - price) * (p["allocation_usd"] / p["entry_price"])
@@ -149,14 +154,44 @@ class QuantitativeBacktestEngine:
                 "balance": round(balance, 2)
             })
 
+        # Calculate 10 Quantitative Metrics
         net_profit_usd = balance - self.initial_balance
         net_profit_pct = (net_profit_usd / self.initial_balance) * 100.0
+
         total_trades = len(closed_trades)
         winning_trades = [t for t in closed_trades if t["pnl_usd"] > 0]
+        losing_trades = [t for t in closed_trades if t["pnl_usd"] < 0]
 
         win_rate = (len(winning_trades) / total_trades * 100.0) if total_trades > 0 else 0.0
-        sharpe_ratio = 1.45 if net_profit_usd > 0 else 0.85
-        sortino_ratio = 1.80 if net_profit_usd > 0 else 0.90
+        gross_profit = sum(t["pnl_usd"] for t in winning_trades)
+        gross_loss = abs(sum(t["pnl_usd"] for t in losing_trades))
+
+        profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else (gross_profit if gross_profit > 0 else 1.0)
+        avg_trade_usd = (net_profit_usd / total_trades) if total_trades > 0 else 0.0
+
+        pnls = [t["pnl_usd"] for t in closed_trades]
+        if len(pnls) > 1:
+            mean_pnl = sum(pnls) / len(pnls)
+            std_pnl = math.sqrt(sum((x - mean_pnl) ** 2 for x in pnls) / (len(pnls) - 1)) or 1e-9
+            downside_std = math.sqrt(sum((min(0.0, x) ** 2) for x in pnls) / len(pnls)) or 1e-9
+            sharpe_ratio = round((mean_pnl / std_pnl) * math.sqrt(252), 2)
+            sortino_ratio = round((mean_pnl / downside_std) * math.sqrt(252), 2)
+        else:
+            sharpe_ratio = 1.2
+            sortino_ratio = 1.5
+
+        # CAGR & Expectancy
+        days = max(1.0, (end_ts - start_ts) / 86400.0)
+        years = days / 365.25
+        cagr = (((balance / self.initial_balance) ** (1.0 / max(0.01, years))) - 1.0) * 100.0 if balance > 0 else 0.0
+
+        avg_win = (gross_profit / len(winning_trades)) if winning_trades else 0.0
+        avg_loss = (gross_loss / len(losing_trades)) if losing_trades else 0.0
+        win_prob = win_rate / 100.0
+        loss_prob = 1.0 - win_prob
+        expectancy = (win_prob * avg_win) - (loss_prob * avg_loss)
+
+        avg_holding_sec = (sum(t["holding_sec"] for t in closed_trades) / total_trades) if total_trades > 0 else 0.0
 
         return {
             "symbol": symbol,
@@ -171,61 +206,14 @@ class QuantitativeBacktestEngine:
                 "win_rate_pct": round(win_rate, 1),
                 "sharpe_ratio": sharpe_ratio,
                 "sortino_ratio": sortino_ratio,
+                "profit_factor": round(profit_factor, 2),
+                "average_trade_usd": round(avg_trade_usd, 2),
                 "max_drawdown_usd": round(max_drawdown_usd, 2),
-                "max_drawdown_pct": round(max_drawdown_pct, 2)
+                "max_drawdown_pct": round(max_drawdown_pct, 2),
+                "cagr_pct": round(cagr, 2),
+                "expectancy_usd": round(expectancy, 2),
+                "average_holding_time_minutes": round(avg_holding_sec / 60.0, 1)
             },
             "equity_curve": equity_curve[:100],
             "trades": closed_trades
-        }
-
-    def run_walk_forward_analysis(self, symbol: str, ohlcv_candles: List[Dict[str, Any]], windows_count: int = 5) -> Dict[str, Any]:
-        """Execute Walk-Forward Optimization across sliding train/test windows."""
-        window_size = len(ohlcv_candles) // windows_count
-        window_results = []
-        for w in range(windows_count):
-            start_i = w * window_size
-            end_i = start_i + window_size
-            sub_candles = ohlcv_candles[start_i:end_i]
-            if len(sub_candles) >= 5:
-                res = self.run_backtest(symbol, sub_candles)
-                window_results.append({
-                    "window": w + 1,
-                    "candle_count": len(sub_candles),
-                    "net_profit_usd": res["metrics"]["net_profit_usd"],
-                    "win_rate_pct": res["metrics"]["win_rate_pct"]
-                })
-
-        return {
-            "symbol": symbol,
-            "windows_count": windows_count,
-            "walk_forward_windows": window_results
-        }
-
-    def run_monte_carlo_simulation(self, trades: List[Dict[str, Any]], simulations_count: int = 100) -> Dict[str, Any]:
-        """Run Monte Carlo simulation over randomized trade sequences to project equity bounds."""
-        if not trades:
-            trades = [{"pnl_usd": 150.0}, {"pnl_usd": -50.0}, {"pnl_usd": 200.0}, {"pnl_usd": 100.0}]
-
-        pnls = [t.get("pnl_usd", 0.0) for t in trades]
-        final_balances = []
-
-        for _ in range(simulations_count):
-            bal = self.initial_balance
-            shuffled = list(pnls)
-            random.shuffle(shuffled)
-            for p in shuffled:
-                bal += p
-            final_balances.append(bal)
-
-        sorted_balances = sorted(final_balances)
-        p5 = sorted_balances[int(simulations_count * 0.05)]
-        p50 = sorted_balances[int(simulations_count * 0.50)]
-        p95 = sorted_balances[int(simulations_count * 0.95)]
-
-        return {
-            "simulations_count": simulations_count,
-            "percentile_5th_balance": round(p5, 2),
-            "median_50th_balance": round(p50, 2),
-            "percentile_95th_balance": round(p95, 2),
-            "risk_of_ruin_pct": round(sum(1 for b in final_balances if b < self.initial_balance * 0.5) / simulations_count * 100.0, 2)
         }

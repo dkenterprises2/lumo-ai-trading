@@ -544,38 +544,3 @@ class TraderRepository:
             logger.error(f"Error loading trade journal from DB for user_id={user_id}: {e}")
         return journal
 
-    async def log_timeline_event(self, trade_id: str, symbol: str, event_type: str, description: str, metadata: Optional[Dict[str, Any]] = None, user_id: Optional[int] = None):
-
-        """Record trade decision timeline step in DB."""
-        from backend.models.timeline import TradeTimelineModel
-        try:
-            async with AsyncSessionLocal() as session:
-                entry = TradeTimelineModel(
-                    trade_id=trade_id,
-                    user_id=user_id,
-                    symbol=symbol,
-                    event_type=event_type,
-                    description=description,
-                    event_metadata=metadata or {},
-                    timestamp=time.time()
-                )
-                session.add(entry)
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Error logging timeline event for trade_id={trade_id}: {e}")
-
-    async def get_trade_timeline(self, trade_id: str) -> List[Dict[str, Any]]:
-        """Fetch decision timeline steps for trade_id."""
-        from backend.models.timeline import TradeTimelineModel
-        steps = []
-        try:
-            async with AsyncSessionLocal() as session:
-                stmt = select(TradeTimelineModel).where(TradeTimelineModel.trade_id == trade_id).order_by(TradeTimelineModel.timestamp.asc())
-                result = await session.execute(stmt)
-                records = result.scalars().all()
-                for r in records:
-                    steps.append(r.to_dict())
-        except Exception as e:
-            logger.error(f"Error loading timeline for trade_id={trade_id}: {e}")
-        return steps
-
