@@ -106,9 +106,12 @@ async def log_incoming_requests(request: Request, call_next):
 
 from backend.routers.auth_router import router as auth_router
 from backend.routers.exchange_router import router as exchange_router
+from backend.routers.strategy_router import router as strategy_router
 
 app.include_router(auth_router)
 app.include_router(exchange_router)
+app.include_router(strategy_router)
+
 
 
 # Serve Static Assets
