@@ -1,0 +1,15 @@
+{
+  "title": "Lumo Platform Overview",
+  "panels": [
+    {
+      "type": "graph",
+      "title": "HTTP Request Rate & Errors",
+      "targets": [{"expr": "rate(lumo_http_requests_total[5m])"}]
+    },
+    {
+      "type": "stat",
+      "title": "Active WebSocket Connections",
+      "targets": [{"expr": "lumo_active_websocket_connections"}]
+    }
+  ]
+}

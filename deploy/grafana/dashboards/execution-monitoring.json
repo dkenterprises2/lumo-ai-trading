@@ -1,0 +1,15 @@
+{
+  "title": "Execution & Order Routing Monitoring",
+  "panels": [
+    {
+      "type": "graph",
+      "title": "Order Execution Latency (ms)",
+      "targets": [{"expr": "lumo_execution_latency_ms"}]
+    },
+    {
+      "type": "graph",
+      "title": "Execution Slippage (bps)",
+      "targets": [{"expr": "lumo_execution_slippage_bps"}]
+    }
+  ]
+}
