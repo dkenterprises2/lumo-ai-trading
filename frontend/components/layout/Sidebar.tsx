@@ -39,7 +39,17 @@ import { LogOut, User as UserIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 export const sidebarItems = [
-  { id: "dashboard", label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { id: "dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { id: "copilot", label: "AI Copilot", href: "/copilot", icon: Bot },
+  { id: "nl-strategy", label: "NL Strategy Builder", href: "/nl-strategy-builder", icon: ChessKnight },
+  { id: "portfolio-assistant", label: "Portfolio Assistant", href: "/portfolio-assistant", icon: TrendingUp },
+  { id: "investigations", label: "Trade RCA", href: "/investigations", icon: Crosshair },
+  { id: "operations-ai", label: "Operations AI (SRE)", href: "/operations-ai", icon: ShieldAlert },
+  { id: "rag-library", label: "RAG Knowledge", href: "/rag-library", icon: BookOpen },
+  { id: "orchestration", label: "Agent Orchestration", href: "/orchestration", icon: Zap },
+  { id: "ai-actions", label: "AI Governance", href: "/governance/ai-actions", icon: Award },
+  { id: "executive-briefings", label: "Executive Briefings", href: "/executive-briefings", icon: FileSpreadsheet },
+  { id: "ai-guardrails", label: "AI Guardrails", href: "/ai-guardrails", icon: Key },
   { id: "scanner", label: "Market Scanner", href: "/scanner", icon: Scan },
   { id: "charts", label: "Charts", href: "/charts", icon: LineChart },
   { id: "orders", label: "Orders", href: "/orders", icon: ClipboardList },
@@ -57,6 +67,7 @@ export const sidebarItems = [
   { id: "settings", label: "Settings", href: "/settings", icon: Settings },
   { id: "api-keys", label: "API Keys", href: "/api-keys", icon: Key }
 ];
+
 
 export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, connectionState }: SidebarProps) {
   const pathname = usePathname();
