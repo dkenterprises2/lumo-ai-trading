@@ -1,0 +1,15 @@
+{
+  "title": "Institutional Risk & Exposure Monitoring",
+  "panels": [
+    {
+      "type": "gauge",
+      "title": "Daily Drawdown (%)",
+      "targets": [{"expr": "lumo_daily_drawdown_pct"}]
+    },
+    {
+      "type": "stat",
+      "title": "Value at Risk (VaR 99%)",
+      "targets": [{"expr": "lumo_portfolio_var_usd"}]
+    }
+  ]
+}

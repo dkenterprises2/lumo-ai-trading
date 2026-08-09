@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lumo-backend
+  namespace: lumo-trading
+  labels:
+    app: lumo-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: lumo-backend
+  template:
+    metadata:
+      labels:
+        app: lumo-backend
+    spec:
+      containers:
+      - name: backend
+        image: lumo-ai-trading-backend:v2.5.0
+        ports:
+        - containerPort: 8000
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: "1000m"
+            memory: "1024Mi"
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
