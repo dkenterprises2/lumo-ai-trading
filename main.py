@@ -118,6 +118,7 @@ from backend.routers.saas_router import router as saas_router
 from backend.routers.admin_router import router as admin_router
 from backend.routers.microservices_router import router as microservices_router
 from backend.routers.compliance_router import router as compliance_router
+from backend.routers.quant_research_router import router as quant_research_router
 
 app.include_router(auth_router)
 app.include_router(exchange_router)
@@ -133,6 +134,8 @@ app.include_router(saas_router)
 app.include_router(admin_router)
 app.include_router(microservices_router)
 app.include_router(compliance_router)
+app.include_router(quant_research_router)
+
 
 
 
