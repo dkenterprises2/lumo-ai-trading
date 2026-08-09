@@ -27,3 +27,8 @@ logs/
 
 # Scratch scripts
 scratch/
+*.db-shm
+*.db-wal
+lumo_trading.db
+*.pyc
+__pycache__/
