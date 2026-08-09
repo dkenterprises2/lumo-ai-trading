@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lumo-api
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: lumo-api
+  template:
+    metadata:
+      labels:
+        app: lumo-api
+    spec:
+      containers:
+      - name: lumo-api
+        image: lumotrade/lumo-api:v3.6.0
+        ports:
+        - containerPort: 8000

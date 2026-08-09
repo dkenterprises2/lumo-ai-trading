@@ -1,0 +1,17 @@
+replicaCount: 3
+image:
+  repository: lumotrade/lumo-api
+  tag: v3.6.0
+  pullPolicy: IfNotPresent
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 2048Mi
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 75
