@@ -5,10 +5,11 @@ class RBACPermissionManager:
 
     ROLES = {
         "OWNER": ["*"],
-        "ADMIN": ["org:read", "org:write", "members:manage", "billing:read", "trading:execute", "marketdata:view"],
-        "TRADER": ["org:read", "trading:execute", "analytics:read", "marketdata:view"],
-        "ANALYST": ["org:read", "analytics:read", "marketdata:view"],
-        "VIEWER": ["org:read", "analytics:read", "marketdata:view"]
+        "ADMIN": ["org:read", "org:write", "members:manage", "billing:read", "trading:execute", "marketdata:view", "ai:manage", "ai:view"],
+        "TRADER": ["org:read", "trading:execute", "analytics:read", "marketdata:view", "ai:manage", "ai:view"],
+        "ANALYST": ["org:read", "analytics:read", "marketdata:view", "ai:view"],
+        "VIEWER": ["org:read", "analytics:read", "marketdata:view", "ai:view"]
+
     }
 
 

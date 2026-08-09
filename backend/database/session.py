@@ -73,7 +73,9 @@ async def init_db():
             import backend.models.compliance  # noqa: F401
             import backend.models.execution_algos  # noqa: F401
             import backend.models.marketdata  # noqa: F401
+            import backend.models.ai_agents  # noqa: F401
             await conn.run_sync(Base.metadata.create_all)
+
 
 
 

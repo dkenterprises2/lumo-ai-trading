@@ -121,6 +121,7 @@ from backend.routers.compliance_router import router as compliance_router
 from backend.routers.quant_research_router import router as quant_research_router
 from backend.routers.execution_algos_router import router as execution_algos_router
 from backend.routers.marketdata_router import router as marketdata_router
+from backend.routers.ai_agents_router import router as ai_agents_router
 
 app.include_router(auth_router)
 app.include_router(exchange_router)
@@ -139,6 +140,8 @@ app.include_router(compliance_router)
 app.include_router(quant_research_router)
 app.include_router(execution_algos_router)
 app.include_router(marketdata_router)
+app.include_router(ai_agents_router)
+
 
 
 

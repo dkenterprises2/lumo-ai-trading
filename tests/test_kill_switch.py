@@ -4,13 +4,14 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from backend.execution.kill_switch import emergency_kill_switch
+from backend.ai_agents.kill_switch import ai_kill_switch
 
-def test_emergency_kill_switch():
-    act_res = emergency_kill_switch.activate("TEST_TRIGGER")
-    assert emergency_kill_switch.is_active is True
-    assert act_res["status"] == "KILL_SWITCH_ACTIVATED"
+def test_kill_switch_activation():
+    assert ai_kill_switch.is_active() is False
+    res = ai_kill_switch.activate()
+    assert res["kill_switch_active"] is True
+    assert ai_kill_switch.is_active() is True
 
-    deact_res = emergency_kill_switch.deactivate()
-    assert emergency_kill_switch.is_active is False
-    assert deact_res["status"] == "KILL_SWITCH_DEACTIVATED"
+    res2 = ai_kill_switch.deactivate()
+    assert res2["kill_switch_active"] is False
+    assert ai_kill_switch.is_active() is False
