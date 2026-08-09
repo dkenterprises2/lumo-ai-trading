@@ -5,10 +5,12 @@ class RBACPermissionManager:
 
     ROLES = {
         "OWNER": ["*"],
-        "ADMIN": ["org:read", "org:write", "members:manage", "billing:read", "trading:execute"],
-        "TRADER": ["org:read", "trading:execute", "analytics:read"],
-        "VIEWER": ["org:read", "analytics:read"]
+        "ADMIN": ["org:read", "org:write", "members:manage", "billing:read", "trading:execute", "marketdata:view"],
+        "TRADER": ["org:read", "trading:execute", "analytics:read", "marketdata:view"],
+        "ANALYST": ["org:read", "analytics:read", "marketdata:view"],
+        "VIEWER": ["org:read", "analytics:read", "marketdata:view"]
     }
+
 
     @staticmethod
     def check_permission(role: str, permission: str) -> bool:
