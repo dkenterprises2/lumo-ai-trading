@@ -774,7 +774,11 @@ async def update_bot_strategy(
     user_trader = await trader_manager.get_trader_for_user(current_user.id)
     user_trader.active_strategy = strat
     user_trader.risk_mode = risk
+    trader.active_strategy = strat
+    trader.risk_mode = risk
     await user_trader.save_portfolio_async()
+    await trader.save_portfolio_async()
+    ws_manager.user_last_hashes.clear()
     
     logger.info(f"[STRATEGY_SWITCH] UserID={current_user.id} switched to Strategy={strat}, RiskMode={risk}")
     return {
@@ -803,7 +807,12 @@ async def update_bot_parameters(
     user_trader = await trader_manager.get_trader_for_user(current_user.id)
     user_trader.default_allocation_usd = float(alloc)
     user_trader.default_leverage = int(lev)
+    trader.default_allocation_usd = float(alloc)
+    trader.default_leverage = int(lev)
     await user_trader.save_portfolio_async()
+    await trader.save_portfolio_async()
+    ws_manager.user_last_hashes.clear()
+
     
     logger.info(f"[EXECUTION_PARAMS] UserID={current_user.id} updated params: Allocation=${alloc:,.2f} USDT, Leverage={lev}x")
     return {
@@ -888,16 +897,18 @@ async def optimize_strategy(body: Dict[str, Any], current_user: UserModel = Depe
 
 
 @app.post("/api/bot/toggle")
-
 async def toggle_bot(enable: bool = Query(...), current_user: UserModel = Depends(get_current_user)):
     user_trader = await trader_manager.get_trader_for_user(current_user.id)
     user_trader.auto_bot_enabled = enable
+    trader.auto_bot_enabled = enable
     await user_trader.save_portfolio_async()
+    await trader.save_portfolio_async()
     # Force immediate WebSocket snapshot broadcast on next tick by clearing user hash cache
-    ws_manager.user_last_hashes.pop(current_user.id, None)
+    ws_manager.user_last_hashes.clear()
     status_str = "ACTIVE" if enable else "DISABLED"
     logger.info(f"Auto-Trading Bot state for user_id={current_user.id}: {status_str}")
     return {"status": "success", "message": f"Auto-Trading Bot is now {status_str}", "auto_bot_enabled": enable}
+
 
 
 # --- PHASE 1: OBSERVABILITY ENDPOINTS ---
