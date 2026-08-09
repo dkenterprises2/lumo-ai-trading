@@ -5,10 +5,11 @@ class RBACPermissionManager:
 
     ROLES = {
         "OWNER": ["*"],
-        "ADMIN": ["org:read", "org:write", "members:manage", "billing:read", "trading:execute", "marketdata:view", "ai:manage", "ai:view", "multiasset:trade", "multiasset:view", "saas:manage", "saas:view", "platform:manage", "platform:view", "research:manage", "research:view", "marketplace:manage", "marketplace:view", "execution:manage", "execution:view"],
-        "TRADER": ["org:read", "trading:execute", "analytics:read", "marketdata:view", "ai:manage", "ai:view", "multiasset:trade", "multiasset:view", "saas:view", "platform:view", "research:view", "marketplace:view", "execution:manage", "execution:view"],
-        "ANALYST": ["org:read", "analytics:read", "marketdata:view", "ai:view", "multiasset:view", "saas:view", "platform:view", "research:view", "marketplace:view", "execution:view"],
-        "VIEWER": ["org:read", "analytics:read", "marketdata:view", "ai:view", "multiasset:view", "saas:view", "platform:view", "research:view", "marketplace:view", "execution:view"]
+        "ADMIN": ["org:read", "org:write", "members:manage", "billing:read", "trading:execute", "marketdata:view", "ai:manage", "ai:view", "multiasset:trade", "multiasset:view", "saas:manage", "saas:view", "platform:manage", "platform:view", "research:manage", "research:view", "marketplace:manage", "marketplace:view", "execution:manage", "execution:view", "copilot:manage", "copilot:view"],
+        "TRADER": ["org:read", "trading:execute", "analytics:read", "marketdata:view", "ai:manage", "ai:view", "multiasset:trade", "multiasset:view", "saas:view", "platform:view", "research:view", "marketplace:view", "execution:manage", "execution:view", "copilot:manage", "copilot:view"],
+        "ANALYST": ["org:read", "analytics:read", "marketdata:view", "ai:view", "multiasset:view", "saas:view", "platform:view", "research:view", "marketplace:view", "execution:view", "copilot:view"],
+        "VIEWER": ["org:read", "analytics:read", "marketdata:view", "ai:view", "multiasset:view", "saas:view", "platform:view", "research:view", "marketplace:view", "execution:view", "copilot:view"]
+
 
 
 
