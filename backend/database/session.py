@@ -58,7 +58,6 @@ async def init_db():
     """Initialize database tables without dropping existing data."""
     try:
         async with async_engine.begin() as conn:
-            # Import models inside function to register metadata
             import backend.models.domain  # noqa: F401
             import backend.models.journal  # noqa: F401
             import backend.models.exchange  # noqa: F401
@@ -66,14 +65,13 @@ async def init_db():
             import backend.models.analytics  # noqa: F401
             import backend.models.ml  # noqa: F401
             import backend.models.research  # noqa: F401
+            import backend.models.portfolio_opt  # noqa: F401
+            import backend.models.live_execution  # noqa: F401
             await conn.run_sync(Base.metadata.create_all)
-
-
-
-
 
             # Auto-migrate missing columns across all domain tables
             def auto_migrate_schema(sync_conn):
+
                 from sqlalchemy import inspect, text
                 inspector = inspect(sync_conn)
                 
