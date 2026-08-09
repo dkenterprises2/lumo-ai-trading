@@ -4,13 +4,12 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from backend.ai.feature_store_v2 import feature_store_v2
+from backend.mlops.feature_store import feature_store_manager
 
-def test_feature_store_v2():
-    feature_store_v2.store_feature_vector("ETH/USDT", {"rsi_14": 62.1, "ema_20": 1950.0})
-    eth_feats = feature_store_v2.get_latest_features("ETH/USDT")
-    assert eth_feats["symbol"] == "ETH/USDT"
-    assert eth_feats["features"]["rsi_14"] == 62.1
+def test_feature_store_versioning():
+    version = feature_store_manager.register_feature_version("New Feature Set", ["rsi_14", "volatility"], "2.0.0")
+    assert version["version"] == "2.0.0"
+    assert version["is_immutable"] is True
 
-    meta = feature_store_v2.list_feature_metadata()
-    assert len(meta) >= 5
+    versions = feature_store_manager.list_feature_versions()
+    assert len(versions) >= 2
