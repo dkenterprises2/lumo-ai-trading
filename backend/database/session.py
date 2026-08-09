@@ -77,7 +77,9 @@ async def init_db():
             import backend.models.multiasset  # noqa: F401
             import backend.models.saas_enterprise  # noqa: F401
             import backend.models.platform_infra  # noqa: F401
+            import backend.models.quant_research_platform  # noqa: F401
             await conn.run_sync(Base.metadata.create_all)
+
 
 
 

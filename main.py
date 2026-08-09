@@ -125,6 +125,7 @@ from backend.routers.ai_agents_router import router as ai_agents_router
 from backend.routers.multiasset_router import router as multiasset_router
 from backend.routers.enterprise_saas_router import router as enterprise_saas_router
 from backend.routers.platform_infra_router import router as platform_infra_router
+from backend.routers.quant_research_platform_router import router as quant_research_platform_router
 
 app.include_router(auth_router)
 app.include_router(exchange_router)
@@ -147,6 +148,8 @@ app.include_router(ai_agents_router)
 app.include_router(multiasset_router)
 app.include_router(enterprise_saas_router)
 app.include_router(platform_infra_router)
+app.include_router(quant_research_platform_router)
+
 
 
 

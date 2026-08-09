@@ -2,40 +2,25 @@
 
 import React from "react";
 
-export default function FactorResearchPage() {
+export default function ResearchFactorsPage() {
   return (
     <div className="p-8 max-w-7xl mx-auto space-y-6">
       <div className="border-b border-gray-800 pb-4">
-        <h1 className="text-3xl font-bold text-white tracking-tight">Factor Research & Alpha Library</h1>
-        <p className="text-gray-400 mt-1">Formulaic alphas, Information Coefficient (IC) evaluation, and factor correlation heatmaps.</p>
+        <h1 className="text-3xl font-bold text-white tracking-tight">Institutional Factor Research Library</h1>
+        <p className="text-gray-400 mt-1">Momentum, Parkinson volatility, Amihud illiquidity, & Crypto on-chain factor suites.</p>
       </div>
 
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-gray-400">
-            <thead className="bg-black/50 text-gray-300 uppercase text-xs">
-              <tr>
-                <th className="px-4 py-3">Alpha ID</th>
-                <th className="px-4 py-3">Factor Name</th>
-                <th className="px-4 py-3">Category</th>
-                <th className="px-4 py-3">Information Coefficient (IC)</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-gray-800">
-                <td className="px-4 py-3 font-mono text-indigo-400 font-bold">ALPHA-001</td>
-                <td className="px-4 py-3 font-bold text-white">CrossSectionalMomentum</td>
-                <td className="px-4 py-3">MOMENTUM</td>
-                <td className="px-4 py-3 text-emerald-400 font-bold">0.084</td>
-              </tr>
-              <tr className="border-b border-gray-800">
-                <td className="px-4 py-3 font-mono text-indigo-400 font-bold">ALPHA-002</td>
-                <td className="px-4 py-3 font-bold text-white">MeanReversionZScore</td>
-                <td className="px-4 py-3">VALUE</td>
-                <td className="px-4 py-3 text-emerald-400 font-bold">0.062</td>
-              </tr>
-            </tbody>
-          </table>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl space-y-2">
+          <span className="font-mono text-xs text-indigo-400 font-bold">MOMENTUM_20D</span>
+          <h3 className="text-lg font-bold text-white">20-Day Risk-Adjusted Momentum</h3>
+          <p className="text-xs text-emerald-400">IC Mean: 0.082 | Sharpe: 2.15</p>
+        </div>
+
+        <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl space-y-2">
+          <span className="font-mono text-xs text-amber-400 font-bold">EXCHANGE_NETFLOW</span>
+          <h3 className="text-lg font-bold text-white">Crypto On-Chain Netflow</h3>
+          <p className="text-xs text-emerald-400">IC Mean: 0.091 | Sharpe: 2.68</p>
         </div>
       </div>
     </div>
