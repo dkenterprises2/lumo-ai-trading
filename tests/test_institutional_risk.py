@@ -7,13 +7,17 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 from trader import PaperTrader
 from institutional_risk import InstitutionalRiskManager, InstitutionalRiskConfig
 
+import time
+
 def test_risk_rule_1_daily_loss_breach():
     trader = PaperTrader(initial_balance=10000.0)
     risk_mgr = InstitutionalRiskManager(InstitutionalRiskConfig(max_daily_loss_usd=200.0, max_daily_loss_pct=2.0))
     trader.risk_manager = risk_mgr
 
-    # Simulate $300 daily loss
-    trader.trade_history.append({"status": "CLOSED", "pnl_usd": -300.0, "exit_time": "2026-08-06 10:00:00"})
+    # Simulate $300 daily loss today
+    today_str = time.strftime("%Y-%m-%d %H:%M:%S")
+    trader.trade_history.append({"status": "CLOSED", "pnl_usd": -300.0, "exit_time": today_str})
+
 
     res = risk_mgr.evaluate_order_risk(
         user_trader=trader,
