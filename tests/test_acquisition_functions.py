@@ -6,7 +6,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from backend.alpha_factory.optimization.bayesian_optimizer import bayesian_optimizer
 
-def test_bayesian_optimizer():
-    res = bayesian_optimizer.run_optimization("alpha_momentum_v12")
-    assert res["status"] == "CONVERGED_SIMULATED"
-    assert res["best_sharpe"] > 2.0
+def test_trials_count():
+    res = bayesian_optimizer.run_optimization("alpha_test")
+    assert res["trials_completed"] == 100

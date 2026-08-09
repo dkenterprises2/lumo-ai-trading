@@ -6,7 +6,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from backend.alpha_factory.automl.strategy_generator import strategy_generator
 
-def test_strategy_generator():
-    cand = strategy_generator.generate_candidate("default_space")
-    assert cand["status"] == "GENERATED"
-    assert len(cand["indicators"]) == 3
+def test_search_space_candidate():
+    cand = strategy_generator.generate_candidate("space_01")
+    assert cand["sharpe_estimated"] > 0

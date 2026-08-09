@@ -5,10 +5,11 @@ class RBACPermissionManager:
 
     ROLES = {
         "OWNER": ["*"],
-        "ADMIN": ["org:read", "org:write", "members:manage", "billing:read", "trading:execute", "marketdata:view", "ai:manage", "ai:view", "multiasset:trade", "multiasset:view", "saas:manage", "saas:view", "platform:manage", "platform:view", "research:manage", "research:view"],
-        "TRADER": ["org:read", "trading:execute", "analytics:read", "marketdata:view", "ai:manage", "ai:view", "multiasset:trade", "multiasset:view", "saas:view", "platform:view", "research:view"],
-        "ANALYST": ["org:read", "analytics:read", "marketdata:view", "ai:view", "multiasset:view", "saas:view", "platform:view", "research:view"],
-        "VIEWER": ["org:read", "analytics:read", "marketdata:view", "ai:view", "multiasset:view", "saas:view", "platform:view", "research:view"]
+        "ADMIN": ["org:read", "org:write", "members:manage", "billing:read", "trading:execute", "marketdata:view", "ai:manage", "ai:view", "multiasset:trade", "multiasset:view", "saas:manage", "saas:view", "platform:manage", "platform:view", "research:manage", "research:view", "marketplace:manage", "marketplace:view"],
+        "TRADER": ["org:read", "trading:execute", "analytics:read", "marketdata:view", "ai:manage", "ai:view", "multiasset:trade", "multiasset:view", "saas:view", "platform:view", "research:view", "marketplace:view"],
+        "ANALYST": ["org:read", "analytics:read", "marketdata:view", "ai:view", "multiasset:view", "saas:view", "platform:view", "research:view", "marketplace:view"],
+        "VIEWER": ["org:read", "analytics:read", "marketdata:view", "ai:view", "multiasset:view", "saas:view", "platform:view", "research:view", "marketplace:view"]
+
 
 
 
