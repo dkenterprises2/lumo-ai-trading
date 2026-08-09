@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lumo-microservices-config
+  namespace: lumo-microservices
+data:
+  ENVIRONMENT: "production"
+  KAFKA_BOOTSTRAP_SERVERS: "kafka-service:9092"
+  REDIS_HOST: "redis-service"

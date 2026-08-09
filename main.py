@@ -116,6 +116,7 @@ from backend.routers.system_observability_router import router as system_observa
 from backend.routers.mlops_router import router as mlops_router
 from backend.routers.saas_router import router as saas_router
 from backend.routers.admin_router import router as admin_router
+from backend.routers.microservices_router import router as microservices_router
 
 app.include_router(auth_router)
 app.include_router(exchange_router)
@@ -129,6 +130,8 @@ app.include_router(system_observability_router)
 app.include_router(mlops_router)
 app.include_router(saas_router)
 app.include_router(admin_router)
+app.include_router(microservices_router)
+
 
 
 

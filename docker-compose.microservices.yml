@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: lumo_trading
+      POSTGRES_USER: lumo_user
+      POSTGRES_PASSWORD: lumo_password_2026
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+  trading-service:
+    build:
+      context: ./services/trading-service
+    ports:
+      - "8001:8001"
+
+  execution-service:
+    build:
+      context: ./services/execution-service
+    ports:
+      - "8002:8002"
+
+  ai-inference-service:
+    build:
+      context: ./services/ai-inference-service
+    ports:
+      - "8003:8003"
+
+  websocket-gateway:
+    build:
+      context: ./services/websocket-gateway
+    ports:
+      - "8004:8004"
+
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:10.1.0
+    ports:
+      - "3000:3000"
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.49
+    ports:
+      - "16686:16686"
