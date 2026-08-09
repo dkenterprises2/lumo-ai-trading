@@ -203,10 +203,13 @@ export async function handlePositionAction(payload: {
 }
 
 export async function toggleBot(enable: boolean): Promise<{ status: string; message: string; auto_bot_enabled: boolean }> {
-  return requestJson<{ status: string; message: string; auto_bot_enabled: boolean }>(`/api/bot/toggle?enable=${enable}`, {
+  const data = await requestJson<{ status: string; message: string; auto_bot_enabled: boolean }>(`/api/bot/toggle?enable=${enable}`, {
     method: "POST"
   });
+  console.log("Toggle response", data);
+  return data;
 }
+
 
 export async function setStrategy(strategy_name: string, risk_mode: string = "Moderate"): Promise<{ status: string; message: string; strategy_name?: string; risk_mode?: string }> {
   return requestJson<{ status: string; message: string; strategy_name?: string; risk_mode?: string }>(`/api/bot/strategy?strategy_name=${encodeURIComponent(strategy_name)}&risk_mode=${encodeURIComponent(risk_mode)}`, {

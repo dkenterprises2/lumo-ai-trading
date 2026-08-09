@@ -906,8 +906,9 @@ async def toggle_bot(enable: bool = Query(...), current_user: UserModel = Depend
     # Force immediate WebSocket snapshot broadcast on next tick by clearing user hash cache
     ws_manager.user_last_hashes.clear()
     status_str = "ACTIVE" if enable else "DISABLED"
-    logger.info(f"Auto-Trading Bot state for user_id={current_user.id}: {status_str}")
-    return {"status": "success", "message": f"Auto-Trading Bot is now {status_str}", "auto_bot_enabled": enable}
+    logger.info(f"AUTO_BOT_TOGGLE user={current_user.id} enable={enable}")
+    return {"status": "success", "message": f"Auto-Trading Bot is now {status_str}", "auto_bot_enabled": enable, "success": True, "enabled": enable}
+
 
 
 

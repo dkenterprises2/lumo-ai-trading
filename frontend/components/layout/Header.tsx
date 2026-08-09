@@ -38,15 +38,13 @@ export function Header({
   onSelectStrategy
 }: HeaderProps) {
   const { user } = useAuth();
-  const [optimisticBotState, setOptimisticBotState] = React.useState<boolean | null>(null);
-
-
+  const [botState, setBotState] = React.useState<boolean | null>(null);
 
   React.useEffect(() => {
-    if (portfolio?.auto_bot_enabled !== undefined && portfolio.auto_bot_enabled === optimisticBotState) {
-      setOptimisticBotState(null);
+    if (portfolio?.auto_bot_enabled !== undefined && botState === null) {
+      setBotState(portfolio.auto_bot_enabled);
     }
-  }, [portfolio?.auto_bot_enabled, optimisticBotState]);
+  }, [portfolio?.auto_bot_enabled, botState]);
 
 
   const portVal = portfolio?.total_portfolio_value;
@@ -54,7 +52,8 @@ export function Header({
   const dailyPnlPct = portfolio?.daily_pnl_pct;
   const winRate = portfolio?.win_rate;
   const totalTrades = portfolio?.total_closed_trades;
-  const isBotActive = optimisticBotState !== null ? optimisticBotState : (portfolio?.auto_bot_enabled ?? false);
+  const isBotActive = botState !== null ? botState : (portfolio?.auto_bot_enabled ?? false);
+
 
   const fearGreedVal = newsSentiment?.fear_greed.value;
   const fearGreedLabel = newsSentiment?.fear_greed.classification;
@@ -129,13 +128,14 @@ export function Header({
           <button
             onClick={async () => {
               const nextState = !isBotActive;
-              setOptimisticBotState(nextState);
+              setBotState(nextState);
               try {
                 await onToggleBot(nextState);
               } catch (err) {
-                setOptimisticBotState(!nextState);
+                setBotState(!nextState);
               }
             }}
+
 
 
             className={`flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-xs transition-all duration-200 shadow-lg ${
