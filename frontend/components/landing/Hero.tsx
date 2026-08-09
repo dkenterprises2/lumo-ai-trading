@@ -8,8 +8,9 @@ export default function Hero() {
     <section className="relative overflow-hidden pt-20 pb-16 md:pt-32 md:pb-24 border-b border-gray-800/60 bg-gradient-to-b from-black via-gray-950 to-black">
       <div className="max-w-7xl mx-auto px-6 text-center space-y-8 relative z-10">
         <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-indigo-950/60 border border-indigo-700/60 text-indigo-300 text-xs font-semibold uppercase tracking-wider">
-          <span>🚀 Version 2.7 Released — Institutional AI Quantitative Engine</span>
+          <span>🚀 Version 4.0 Released — Enterprise AI Copilot &amp; Autonomous Operations Center</span>
         </div>
+
 
         <h1 className="text-4xl md:text-6xl font-extrabold text-white tracking-tight max-w-4xl mx-auto leading-tight">
           Lumo <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">AI Trading Platform</span>

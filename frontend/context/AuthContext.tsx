@@ -109,9 +109,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
 
     if (typeof window !== 'undefined') {
-      window.location.href = '/';
+      window.location.href = '/copilot';
     } else {
-      router.push('/');
+      router.push('/copilot');
     }
   };
 
@@ -138,10 +138,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
 
     if (typeof window !== 'undefined') {
-      window.location.href = '/';
+      window.location.href = '/copilot';
     } else {
-      router.push('/');
+      router.push('/copilot');
     }
+
   };
 
   const logout = async () => {
