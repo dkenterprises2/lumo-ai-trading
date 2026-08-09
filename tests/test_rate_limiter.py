@@ -4,9 +4,9 @@ import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from backend.exchange.exchange_manager import LeakyBucketRateLimiter
+from backend.saas.rate_limiter import tenant_rate_limiter
 
-def test_rate_limiter_leaky_bucket():
-    limiter = LeakyBucketRateLimiter(requests_per_minute=60)
-    acquired = limiter.acquire()
-    assert acquired is True
+def test_tenant_rate_limiter():
+    res = tenant_rate_limiter.check_rate_limit("ORG-101", 600)
+    assert res["allowed"] is True
+    assert res["remaining"] == 558

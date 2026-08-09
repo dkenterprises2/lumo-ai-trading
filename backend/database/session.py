@@ -69,7 +69,9 @@ async def init_db():
             import backend.models.live_execution  # noqa: F401
             import backend.models.observability  # noqa: F401
             import backend.models.mlops  # noqa: F401
+            import backend.models.saas  # noqa: F401
             await conn.run_sync(Base.metadata.create_all)
+
 
 
 
