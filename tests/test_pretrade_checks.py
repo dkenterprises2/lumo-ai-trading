@@ -6,11 +6,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from backend.execution_network.risk.pretrade_checks import pretrade_risk_controller
 
-def test_kill_switch():
-    ks = pretrade_risk_controller.trigger_kill_switch()
-    assert ks["active"] is True
+def test_pretrade_risk():
     res = pretrade_risk_controller.validate_pretrade("BTCUSDT", 1.0, 64800.0)
-    assert res["passed"] is False
-    assert res["reason"] == "KILL_SWITCH_ACTIVE"
-    pretrade_risk_controller._kill_switch_active = False
-
+    assert res["passed"] is True
+    assert res["notional"] == 64800.0

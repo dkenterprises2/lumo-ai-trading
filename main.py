@@ -127,6 +127,7 @@ from backend.routers.enterprise_saas_router import router as enterprise_saas_rou
 from backend.routers.platform_infra_router import router as platform_infra_router
 from backend.routers.quant_research_platform_router import router as quant_research_platform_router
 from backend.routers.alpha_factory_router import router as alpha_factory_router
+from backend.routers.execution_network_router import router as execution_network_router
 
 app.include_router(auth_router)
 app.include_router(exchange_router)
@@ -151,6 +152,8 @@ app.include_router(enterprise_saas_router)
 app.include_router(platform_infra_router)
 app.include_router(quant_research_platform_router)
 app.include_router(alpha_factory_router)
+app.include_router(execution_network_router)
+
 
 
 
