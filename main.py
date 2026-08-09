@@ -1198,10 +1198,12 @@ def background_scanner_loop():
                         continue
                     seen_symbols.add(cand_sym)
 
-                    # Check Condition 3: Confidence Score Threshold
-                    if cand_conf < 65.0:
-                        logger.info(f"[CANDIDATE #{idx}] Symbol={cand_sym} | Confidence={cand_conf}% | Decision=SKIPPED | Reason=Below 65.0% Threshold")
+                    # Check Condition 3: Dynamic Confidence Threshold based on Risk Mode
+                    min_conf_threshold = 58.0 if user_tr.risk_mode == "Aggressive" else (70.0 if user_tr.risk_mode == "Conservative" else 62.0)
+                    if cand_conf < min_conf_threshold:
+                        logger.info(f"[CANDIDATE #{idx}] Symbol={cand_sym} | Confidence={cand_conf}% | Decision=SKIPPED | Reason=Below {min_conf_threshold}% Threshold for {user_tr.risk_mode} Risk Mode")
                         continue
+
 
                     # Check Condition 4: Existing Position Check
                     if cand_sym in user_tr.positions:
