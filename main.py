@@ -1345,7 +1345,29 @@ async def update_bot_parameters(
     }
 
 
+@app.get("/{full_path:path}")
+async def spa_catch_all(request: Request, full_path: str):
+    """Universal SPA fallback route ensuring no non-API route ever throws 404."""
+    if full_path.startswith("api/") or full_path.startswith("ws/") or full_path.startswith("static/") or full_path in ["docs", "redoc", "openapi.json"]:
+        raise HTTPException(status_code=404, detail=f"Endpoint or resource /{full_path} not found")
+    
+    clean_path = full_path.strip("/")
+    possible_html = os.path.join("static", f"{clean_path}.html")
+    if os.path.exists(possible_html):
+        return FileResponse(possible_html)
+    
+    possible_index = os.path.join("static", clean_path, "index.html")
+    if os.path.exists(possible_index):
+        return FileResponse(possible_index)
+
+    if os.path.exists("static/index.html"):
+        return FileResponse("static/index.html")
+    
+    raise HTTPException(status_code=404, detail="Page not found")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
 
