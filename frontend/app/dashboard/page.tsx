@@ -7,8 +7,9 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { useTradingStream } from "@/hooks/useTradingStream";
 import { useQuery } from "@tanstack/react-query";
-import { fetchPortfolio, fetchNewsSentiment, fetchScannerSummary, toggleBot, setStrategy } from "@/services/api";
+import { fetchPortfolio, fetchNewsSentiment, fetchScannerSummary, toggleBot, setStrategy, handlePositionAction } from "@/services/api";
 import { Bot, LineChart, ShieldAlert, Scan, Crosshair, TrendingUp, Cpu, Award } from "lucide-react";
+import { BottomTabsPanel } from "@/components/terminal/BottomTabsPanel";
 
 export default function InstitutionalDashboardPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -85,6 +86,18 @@ export default function InstitutionalDashboardPage() {
             </div>
           </div>
 
+          {/* Active Open Positions & Execution Terminal Widget */}
+          <div className="space-y-2">
+            <h2 className="text-base font-bold text-slate-200">Live Active Positions &amp; Execution Blotter</h2>
+            <BottomTabsPanel
+              portfolio={currentPortfolio}
+              onPositionAction={async (symbol, action) => {
+                await handlePositionAction({ symbol, action });
+                portfolioQuery.refetch();
+              }}
+            />
+          </div>
+
           {/* Core Feature Quick Links */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <Link href="/copilot" className="bg-slate-900/60 border border-slate-800 p-6 rounded-2xl hover:border-indigo-500 transition-all group">
@@ -112,6 +125,7 @@ export default function InstitutionalDashboardPage() {
             </Link>
           </div>
         </main>
+
         <Footer dbSyncStatus={currentPortfolio?.database_sync_status} lastValidationTime={currentPortfolio?.last_validation_time} connectionState={stream.connectionState} />
       </div>
     </div>
