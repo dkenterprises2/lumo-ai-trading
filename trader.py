@@ -695,7 +695,11 @@ class PaperTrader:
 
         if ratio >= 0.99:
             self.positions.pop(symbol)
+            if not hasattr(self, 'symbol_exit_timestamps'):
+                self.symbol_exit_timestamps = {}
+            self.symbol_exit_timestamps[symbol] = time.time()
             self._run_serialized_db_task(lambda: self.repo.delete_position(pos['id'], user_id=self.user_id))
+
 
         else:
 

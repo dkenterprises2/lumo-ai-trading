@@ -22,11 +22,13 @@ import {
   FileSpreadsheet,
   Bell,
   Settings,
+  Sliders,
   Key,
   ChevronLeft,
   ChevronRight,
   Zap
 } from "lucide-react";
+
 
 interface SidebarProps {
   activeTab?: string;
@@ -68,8 +70,10 @@ export const sidebarItems = [
   { id: "reports", label: "Reports", href: "/reports", icon: FileSpreadsheet },
   { id: "alerts", label: "Alerts", href: "/alerts", icon: Bell },
   { id: "settings", label: "Settings", href: "/settings", icon: Settings },
+  { id: "trading-preferences", label: "Trading Risk", href: "/settings/trading", icon: Sliders },
   { id: "api-keys", label: "API Keys", href: "/api-keys", icon: Key }
 ];
+
 
 
 export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, connectionState }: SidebarProps) {

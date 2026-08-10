@@ -22,6 +22,12 @@ class InstitutionalRiskConfig:
     risk_per_trade_pct: float = 2.0             # Default risk per trade % on stop-loss distance
     sl_atr_multiplier: float = 2.0              # ATR multiplier for dynamic Stop Loss
     tp_atr_multiplier: float = 4.0              # ATR multiplier for dynamic Take Profit
+    max_capital_per_trade_pct: float = 10.0      # Max capital allocation per trade % (e.g. 10.0%)
+
+    symbol_cooldown_minutes: int = 15           # Re-entry cooldown per symbol in minutes (e.g. 15m)
+    allowed_symbols: List[str] = field(default_factory=lambda: [
+        "BTC/USDT", "ETH/USDT", "SOL/USDT", "AVAX/USDT", "BNB/USDT", "LINK/USDT", "DOT/USDT", "ADA/USDT"
+    ])
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -30,6 +36,7 @@ class InstitutionalRiskConfig:
     def from_dict(cls, data: Dict[str, Any]) -> "InstitutionalRiskConfig":
         valid_keys = {k: v for k, v in data.items() if hasattr(cls, k)}
         return cls(**valid_keys)
+
 
 
 
@@ -79,7 +86,30 @@ class InstitutionalRiskManager:
         drawdown_usd = max(0.0, peak_eq - portfolio_val)
         drawdown_pct = (drawdown_usd / (peak_eq + 1e-9)) * 100.0
 
+        # RULE 0A: Allowed Symbol Whitelist Check
+        if self.config.allowed_symbols and symbol not in self.config.allowed_symbols:
+            msg = f"[RISK_REJECTION] [SYMBOL_NOT_ALLOWED] Symbol {symbol} is not in the user's allowed symbol whitelist."
+            logger.warning(msg)
+            return {"passed": False, "status": "error", "rule": "SYMBOL_NOT_ALLOWED", "message": msg}
+
+        # RULE 0B: Symbol Cooldown Window Check
+        if hasattr(user_trader, 'symbol_exit_timestamps') and symbol in user_trader.symbol_exit_timestamps:
+            last_exit = user_trader.symbol_exit_timestamps[symbol]
+            elapsed_mins = (time.time() - last_exit) / 60.0
+            if elapsed_mins < self.config.symbol_cooldown_minutes:
+                msg = f"[RISK_REJECTION] [SYMBOL_COOLDOWN_ACTIVE] {symbol} was exited {elapsed_mins:.1f}m ago. Cooldown requirement is {self.config.symbol_cooldown_minutes}m."
+                logger.warning(msg)
+                return {"passed": False, "status": "error", "rule": "SYMBOL_COOLDOWN_ACTIVE", "message": msg}
+
+        # RULE 0C: Maximum Capital Allocation Per Trade Check
+        max_capital_allowed = portfolio_val * (self.config.max_capital_per_trade_pct / 100.0)
+        if allocation_usd > (max_capital_allowed + 1e-4):
+            msg = f"[RISK_REJECTION] [MAX_CAPITAL_PER_TRADE_EXCEEDED] Trade allocation (${allocation_usd:.2f}) exceeds max allowed per trade limit ({self.config.max_capital_per_trade_pct:.1f}% = ${max_capital_allowed:.2f})."
+            logger.warning(msg)
+            return {"passed": False, "status": "error", "rule": "MAX_CAPITAL_PER_TRADE", "message": msg}
+
         # RULE 1: Maximum Daily Loss Circuit Breaker
+
         if daily_pnl_pct <= -self.config.max_daily_loss_pct or daily_pnl_usd <= -self.config.max_daily_loss_usd:
             msg = f"[RISK_REJECTION] [DAILY_LOSS_BREACH] Daily PnL ({daily_pnl_pct:.2f}% / ${daily_pnl_usd:.2f}) breached Max Daily Loss Limit (-{self.config.max_daily_loss_pct}% / -${self.config.max_daily_loss_usd}). All trading locked."
             logger.error(msg)

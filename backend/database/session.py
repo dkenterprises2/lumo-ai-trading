@@ -80,7 +80,9 @@ async def init_db():
                         pass
 
                 import backend.models.domain  # noqa: F401
+                import backend.models.trading_preferences  # noqa: F401
                 Base.metadata.create_all(sync_conn)
+
 
 
 
