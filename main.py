@@ -1330,29 +1330,40 @@ async def update_bot_parameters(
     req: Optional[ExecutionParametersRequest] = Body(None),
     default_allocation_usd: Optional[float] = Query(None),
     default_leverage: Optional[int] = Query(None),
-    current_user: UserModel = Depends(get_current_user)
+    current_user: Optional[UserModel] = Depends(get_optional_current_user)
 ):
     """Update Default Execution Sizing and Leverage for AI Trading Engine."""
-    alloc = (req.default_allocation_usd if req and req.default_allocation_usd is not None else default_allocation_usd) or 1000.0
-    lev = (req.default_leverage if req and req.default_leverage is not None else default_leverage) or 1
+    req_alloc = req.default_allocation_usd if (req and hasattr(req, 'default_allocation_usd') and req.default_allocation_usd is not None) else None
+    req_lev = req.default_leverage if (req and hasattr(req, 'default_leverage') and req.default_leverage is not None) else None
+
+    alloc = req_alloc if req_alloc is not None else (default_allocation_usd if default_allocation_usd is not None else 1000.0)
+    lev = req_lev if req_lev is not None else (default_leverage if default_leverage is not None else 1)
+
 
     if alloc <= 0:
         raise HTTPException(status_code=400, detail="Default allocation must be greater than 0")
     if lev < 1 or lev > 25:
         raise HTTPException(status_code=400, detail="Default leverage must be between 1x and 25x")
 
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    user_trader.default_allocation_usd = float(alloc)
-    user_trader.default_leverage = int(lev)
-    user_trader._sync_save_portfolio()
-    
-    logger.info(f"[EXECUTION_PARAMS] UserID={current_user.id} updated params: Allocation=${alloc:,.2f} USDT, Leverage={lev}x")
+    if current_user:
+        user_trader = await trader_manager.get_trader_for_user(current_user.id)
+        user_trader.default_allocation_usd = float(alloc)
+        user_trader.default_leverage = int(lev)
+        await user_trader.save_portfolio_async()
+
+    trader.default_allocation_usd = float(alloc)
+    trader.default_leverage = int(lev)
+    await trader.save_portfolio_async()
+
+    ws_manager.user_last_hashes.clear()
+    logger.info(f"[EXECUTION_PARAMS] UserID={current_user.id if current_user else 'demo'} updated params: Allocation=${alloc:,.2f} USDT, Leverage={lev}x")
     return {
         "status": "success",
         "message": f"Execution parameters applied: ${alloc:,.2f} USDT allocation @ {lev}x leverage",
         "default_allocation_usd": alloc,
         "default_leverage": lev
     }
+
 
 
 @app.get("/{full_path:path}")

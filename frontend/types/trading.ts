@@ -78,7 +78,10 @@ export interface PortfolioState {
   auto_bot_enabled: boolean;
   risk_mode: string;
   active_strategy: string;
+  default_allocation_usd?: number;
+  default_leverage?: number;
   active_positions: Position[];
+
   open_orders?: unknown[];
   trade_history: TradeRecord[];
   pnl_history: EquitySnapshot[];

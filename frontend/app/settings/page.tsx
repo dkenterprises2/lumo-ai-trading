@@ -43,6 +43,17 @@ export default function SettingsPage() {
   });
   const [paramFeedback, setParamFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  React.useEffect(() => {
+    if (currentPortfolio) {
+      if (currentPortfolio.default_allocation_usd) {
+        setDefaultAllocation(currentPortfolio.default_allocation_usd.toString());
+      }
+      if (currentPortfolio.default_leverage) {
+        setDefaultLeverage(currentPortfolio.default_leverage.toString());
+      }
+    }
+  }, [currentPortfolio?.default_allocation_usd, currentPortfolio?.default_leverage]);
+
   const handleApplyParameters = async () => {
     const alloc = parseFloat(defaultAllocation);
     const lev = parseInt(defaultLeverage, 10);
@@ -75,6 +86,7 @@ export default function SettingsPage() {
       });
     }
   };
+
 
 
 
