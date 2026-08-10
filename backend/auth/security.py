@@ -150,3 +150,32 @@ async def get_current_user(
 
     return user
 
+
+async def get_optional_current_user(
+    request: Request,
+    token: Optional[str] = Depends(oauth2_scheme),
+    session: AsyncSession = Depends(get_db)
+) -> Optional[UserModel]:
+    """Dependency that returns current user if authenticated, or None if unauthenticated/demo mode."""
+    if not token:
+        token = request.cookies.get("access_token")
+    if not token:
+        return None
+
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "access":
+        return None
+
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+
+    try:
+        user_id_int = int(user_id)
+        result = await session.execute(select(UserModel).where(UserModel.id == user_id_int))
+        user = result.scalars().first()
+        return user if (user and user.is_active) else None
+    except Exception:
+        return None
+
+

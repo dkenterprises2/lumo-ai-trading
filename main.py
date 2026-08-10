@@ -20,7 +20,8 @@ from market_data import MarketDataEngine
 from sentiment_engine import SentimentEngine
 from ai_strategy import AITradingStrategy
 from trader import PaperTrader, trader_manager
-from backend.auth.security import get_current_user, get_db
+from backend.auth.security import get_current_user, get_optional_current_user, get_db
+
 from backend.models.domain import UserModel
 from backend.core.logger import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -460,6 +461,8 @@ async def get_portfolio(current_user: UserModel = Depends(get_current_user)):
 
     user_trader.check_stop_loss_take_profit(current_prices)
     return user_trader.get_portfolio_summary(current_prices)
+
+
 
 @app.get("/api/accounting/audit")
 async def get_accounting_audit(current_user: UserModel = Depends(get_current_user)):
@@ -917,17 +920,23 @@ async def optimize_strategy(body: Dict[str, Any], current_user: UserModel = Depe
 
 
 @app.post("/api/bot/toggle")
-async def toggle_bot(enable: bool = Query(...), current_user: UserModel = Depends(get_current_user)):
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    user_trader.auto_bot_enabled = enable
+async def toggle_bot(
+    enable: bool = Query(...),
+    current_user: Optional[UserModel] = Depends(get_optional_current_user)
+):
+    if current_user:
+        user_trader = await trader_manager.get_trader_for_user(current_user.id)
+        user_trader.auto_bot_enabled = enable
+        await user_trader.save_portfolio_async()
+
     trader.auto_bot_enabled = enable
-    await user_trader.save_portfolio_async()
     await trader.save_portfolio_async()
-    # Force immediate WebSocket snapshot broadcast on next tick by clearing user hash cache
+
     ws_manager.user_last_hashes.clear()
     status_str = "ACTIVE" if enable else "DISABLED"
-    logger.info(f"AUTO_BOT_TOGGLE user={current_user.id} enable={enable}")
+    logger.info(f"AUTO_BOT_TOGGLE user={current_user.id if current_user else 'demo'} enable={enable}")
     return {"status": "success", "message": f"Auto-Trading Bot is now {status_str}", "auto_bot_enabled": enable, "success": True, "enabled": enable}
+
 
 
 
