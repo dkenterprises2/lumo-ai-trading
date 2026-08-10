@@ -1240,8 +1240,9 @@ def background_scanner_loop():
                     seen_symbols.add(cand_sym)
 
                     # Check Condition 3: Dynamic Confidence Threshold based on Risk Mode
-                    min_conf_threshold = 58.0 if user_tr.risk_mode == "Aggressive" else (70.0 if user_tr.risk_mode == "Conservative" else 62.0)
+                    min_conf_threshold = 55.0 if user_tr.risk_mode == "Aggressive" else (65.0 if user_tr.risk_mode == "Conservative" else 58.0)
                     if cand_conf < min_conf_threshold:
+
                         logger.info(f"[CANDIDATE #{idx}] Symbol={cand_sym} | Confidence={cand_conf}% | Decision=SKIPPED | Reason=Below {min_conf_threshold}% Threshold for {user_tr.risk_mode} Risk Mode")
                         continue
 

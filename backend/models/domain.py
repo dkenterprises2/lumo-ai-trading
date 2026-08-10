@@ -73,7 +73,8 @@ class PortfolioModel(Base):
     initial_balance: Mapped[float] = mapped_column(Float, default=10000.0)
     margin_used: Mapped[float] = mapped_column(Float, default=0.0)
     total_value: Mapped[float] = mapped_column(Float, default=10000.0)
-    auto_bot_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    auto_bot_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
     active_strategy: Mapped[str] = mapped_column(String(64), default="AI Hybrid")
     risk_mode: Mapped[str] = mapped_column(String(32), default="Moderate")
     default_allocation_usd: Mapped[float] = mapped_column(Float, default=1000.0)

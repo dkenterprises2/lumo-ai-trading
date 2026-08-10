@@ -31,7 +31,8 @@ class PaperTrader:
         self.equity_history: List[Dict[str, Any]] = []
         self.ledger: List[Dict[str, Any]] = []
         self.last_equity_save_time = 0.0
-        self.auto_bot_enabled = False
+        self.auto_bot_enabled = True
+
         self.risk_mode = getattr(settings, "DEFAULT_RISK_MODE", "Moderate")
         self.active_strategy = "AI Hybrid"
         self.default_allocation_usd: float = 1000.0
