@@ -318,8 +318,28 @@ class ExecutionParametersRequest(BaseModel):
 scanner_cache: Dict[str, Any] = {}
 
 @app.get("/")
+@app.get("/login")
+@app.get("/register")
+@app.get("/dashboard")
+@app.get("/copilot")
+@app.get("/charts")
+@app.get("/orders")
+@app.get("/positions")
+@app.get("/risk")
+@app.get("/settings")
+@app.get("/profile")
+@app.get("/history")
+@app.get("/ledger")
+@app.get("/pnl")
+@app.get("/scanner")
+@app.get("/alerts")
+@app.get("/forgot-password")
+@app.get("/reset-password")
 async def serve_dashboard():
-    return FileResponse("static/index.html")
+    if os.path.exists("static/index.html"):
+        return FileResponse("static/index.html")
+    raise HTTPException(status_code=404, detail="Frontend index.html not found")
+
 
 @app.websocket("/ws/stream")
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
