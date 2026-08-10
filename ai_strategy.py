@@ -135,7 +135,16 @@ class AITradingStrategy:
         # 0. MARKET REGIME DETECTION & DYNAMIC WEIGHT ADAPTATION
         # ---------------------------------------------------------------------
         market_regime, regime_desc = MarketRegimeDetector.detect_regime(current_price, technical_data, sentiment_summary)
-        active_weights = MarketRegimeDetector.REGIME_WEIGHTS.get(market_regime, self.default_weights)
+        
+        try:
+            from backend.learning.strategy_weight_loader import strategy_weight_loader
+            dynamic_weights = strategy_weight_loader.get_active_weights_sync(strategy_name="AI_HYBRID", market_regime=market_regime)
+        except Exception:
+            dynamic_weights = None
+
+        regime_base_weights = MarketRegimeDetector.REGIME_WEIGHTS.get(market_regime, self.default_weights)
+        active_weights = dynamic_weights or regime_base_weights
+
 
         # ---------------------------------------------------------------------
         # 1. EXTRACT QUANTITATIVE INDICATOR SUITE DATA

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { TradingConnectionState } from "@/hooks/useTradingStream";
 import {
   LayoutDashboard,
+  Brain,
   Scan,
   LineChart,
   ClipboardList,
@@ -40,7 +41,9 @@ import { useAuth } from "@/context/AuthContext";
 
 export const sidebarItems = [
   { id: "dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+  { id: "learning", label: "Self-Learning AI", href: "/learning", icon: Brain },
   { id: "copilot", label: "AI Copilot", href: "/copilot", icon: Bot },
+
   { id: "nl-strategy", label: "NL Strategy Builder", href: "/nl-strategy-builder", icon: ChessKnight },
   { id: "portfolio-assistant", label: "Portfolio Assistant", href: "/portfolio-assistant", icon: TrendingUp },
   { id: "investigations", label: "Trade RCA", href: "/investigations", icon: Crosshair },

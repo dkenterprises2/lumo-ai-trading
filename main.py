@@ -58,7 +58,11 @@ async def lifespan(app: FastAPI):
         logger.info("[LIFESPAN] Starting background_scanner_loop worker thread...")
         scanner_thread = threading.Thread(target=background_scanner_loop, daemon=True)
         scanner_thread.start()
-        logger.info("[LIFESPAN] Background scanner thread started successfully.")
+
+        learning_thread = threading.Thread(target=background_learning_scheduler_loop, daemon=True)
+        learning_thread.start()
+        logger.info("[LIFESPAN] Background learning scheduler thread started successfully.")
+
 
 
     yield
@@ -130,6 +134,7 @@ from backend.routers.quant_research_platform_router import router as quant_resea
 from backend.routers.alpha_factory_router import router as alpha_factory_router
 from backend.routers.execution_network_router import router as execution_network_router
 from backend.routers.ai_copilot_router import router as ai_copilot_router
+from backend.routers.learning_router import router as learning_router
 
 app.include_router(auth_router)
 app.include_router(exchange_router)
@@ -156,6 +161,8 @@ app.include_router(quant_research_platform_router)
 app.include_router(alpha_factory_router)
 app.include_router(execution_network_router)
 app.include_router(ai_copilot_router)
+app.include_router(learning_router)
+
 
 
 
@@ -1301,6 +1308,29 @@ def background_scanner_loop():
             logger.error(f"Error in multi-symbol scanner loop: {e}")
 
         time.sleep(1.0)
+
+
+def background_learning_scheduler_loop():
+    """Background Scheduler Loop for Phase 25 Self-Learning Pipeline."""
+    logger.info("[LEARNING_SCHEDULER] Learning scheduler worker thread started.")
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def _learning_scheduler_job():
+        while True:
+            try:
+                await asyncio.sleep(3600) # Check hourly
+                from backend.learning.performance_dataset_builder import performance_dataset_builder
+                await performance_dataset_builder.build_dataset()
+                logger.info("[LEARNING_SCHEDULER] Hourly learning dataset sync completed.")
+            except Exception as e:
+                logger.error(f"[LEARNING_SCHEDULER] Scheduler exception: {e}")
+
+    try:
+        loop.run_until_complete(_learning_scheduler_job())
+    except Exception as ex:
+        logger.error(f"[LEARNING_SCHEDULER] Loop exited: {ex}")
+
 
 async def update_bot_strategy(
     req: Optional[StrategyConfigRequest] = Body(None),

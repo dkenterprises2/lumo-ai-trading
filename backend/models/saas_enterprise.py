@@ -14,6 +14,7 @@ class TenantModel(Base):
 class OrganizationModel(Base):
     """Organizations Table."""
     __tablename__ = "organizations"
+    __table_args__ = {'extend_existing': True}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     org_id: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
@@ -21,8 +22,10 @@ class OrganizationModel(Base):
 class WorkspaceModel(Base):
     """Workspaces Table."""
     __tablename__ = "workspaces"
+    __table_args__ = {'extend_existing': True}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+
     workspace_id: Mapped[str] = mapped_column(String, unique=True, index=True, nullable=False)
 
 class TenantUserModel(Base):

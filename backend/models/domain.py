@@ -5,6 +5,10 @@ from sqlalchemy import Column, Integer, String, Float, Boolean, Text, DateTime, 
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from backend.database.session import Base
 
+# Debug Base registration
+print(f"Domain model Base id={id(Base)} Metadata tables={list(Base.metadata.tables.keys())}")
+
+
 class UserModel(Base):
     __tablename__ = "users"
 
@@ -240,6 +244,126 @@ class AuditLogModel(Base):
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
     details: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class LearningTradeOutcome(Base):
+    __tablename__ = "learning_trade_outcomes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trade_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    side: Mapped[str] = mapped_column(String(16), nullable=False)
+    entry_price: Mapped[float] = mapped_column(Float, nullable=False)
+    exit_price: Mapped[float] = mapped_column(Float, nullable=False)
+    quantity: Mapped[float] = mapped_column(Float, nullable=False)
+    gross_pnl: Mapped[float] = mapped_column(Float, nullable=False)
+    net_pnl: Mapped[float] = mapped_column(Float, nullable=False)
+    fees: Mapped[float] = mapped_column(Float, default=0.0)
+    holding_minutes: Mapped[float] = mapped_column(Float, default=0.0)
+    stop_loss_hit: Mapped[bool] = mapped_column(Boolean, default=False)
+    take_profit_hit: Mapped[bool] = mapped_column(Boolean, default=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    strategy_name: Mapped[str] = mapped_column(String(64), default="AI_HYBRID")
+    market_regime: Mapped[str] = mapped_column(String(64), default="NEUTRAL")
+
+
+class LearningFeatureSnapshot(Base):
+    __tablename__ = "learning_feature_snapshots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    trade_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    rsi: Mapped[float] = mapped_column(Float, default=50.0)
+    macd_histogram: Mapped[float] = mapped_column(Float, default=0.0)
+    ema_fast_slope: Mapped[float] = mapped_column(Float, default=0.0)
+    ema_slow_slope: Mapped[float] = mapped_column(Float, default=0.0)
+    adx: Mapped[float] = mapped_column(Float, default=25.0)
+    vwap_distance: Mapped[float] = mapped_column(Float, default=0.0)
+    obv_momentum: Mapped[float] = mapped_column(Float, default=0.0)
+    atr_percent: Mapped[float] = mapped_column(Float, default=1.0)
+    fear_greed_index: Mapped[float] = mapped_column(Float, default=50.0)
+    btc_dominance: Mapped[float] = mapped_column(Float, default=50.0)
+    volume_spike_ratio: Mapped[float] = mapped_column(Float, default=1.0)
+    trend_strength: Mapped[float] = mapped_column(Float, default=0.5)
+    volatility_regime: Mapped[str] = mapped_column(String(32), default="NORMAL")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class LearningWeightExperiment(Base):
+    __tablename__ = "learning_weight_experiments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    experiment_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    strategy_name: Mapped[str] = mapped_column(String(64), default="AI_HYBRID")
+    market_regime: Mapped[str] = mapped_column(String(64), default="NEUTRAL")
+    trials_count: Mapped[int] = mapped_column(Integer, default=100)
+    best_score: Mapped[float] = mapped_column(Float, default=0.0)
+    weights_json: Mapped[str] = mapped_column(Text, nullable=False)
+    metrics_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class LearningValidationRun(Base):
+    __tablename__ = "learning_validation_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    validation_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    experiment_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    approved_for_shadow: Mapped[bool] = mapped_column(Boolean, default=False)
+    current_sharpe: Mapped[float] = mapped_column(Float, default=0.0)
+    candidate_sharpe: Mapped[float] = mapped_column(Float, default=0.0)
+    drawdown_delta: Mapped[float] = mapped_column(Float, default=0.0)
+    win_rate_delta: Mapped[float] = mapped_column(Float, default=0.0)
+    sample_trades_count: Mapped[int] = mapped_column(Integer, default=0)
+    validation_report: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class LearningShadowEvaluation(Base):
+    __tablename__ = "learning_shadow_evaluations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    shadow_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    experiment_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="RUNNING")
+    days_evaluated: Mapped[int] = mapped_column(Integer, default=0)
+    consecutive_passing_windows: Mapped[int] = mapped_column(Integer, default=0)
+    active_signals_count: Mapped[int] = mapped_column(Integer, default=0)
+    candidate_signals_count: Mapped[int] = mapped_column(Integer, default=0)
+    expected_active_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    expected_candidate_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    active_sharpe: Mapped[float] = mapped_column(Float, default=0.0)
+    candidate_sharpe: Mapped[float] = mapped_column(Float, default=0.0)
+    false_breakout_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    summary_report: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class LearningDeploymentApproval(Base):
+    __tablename__ = "learning_deployment_approvals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    approval_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    experiment_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="DRAFT")
+    human_approval: Mapped[bool] = mapped_column(Boolean, default=False)
+    approved_by: Mapped[str] = mapped_column(String(128), default="")
+    notes: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+    deployed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class ActiveStrategyWeights(Base):
+    __tablename__ = "active_strategy_weights"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_name: Mapped[str] = mapped_column(String(64), index=True, default="AI_HYBRID")
+    market_regime: Mapped[str] = mapped_column(String(64), index=True, default="NEUTRAL")
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    weights_json: Mapped[str] = mapped_column(Text, nullable=False)
+    deployed_by: Mapped[str] = mapped_column(String(128), default="SYSTEM")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 
 
 

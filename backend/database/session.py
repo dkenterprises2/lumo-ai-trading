@@ -8,6 +8,10 @@ from backend.core.logger import logger
 # Base Declarative Model
 Base = declarative_base()
 
+# Explicitly register domain models onto Base metadata
+import backend.models.domain  # noqa: F401
+
+
 # Configure Async Database Engine
 ASYNC_DB_URL = settings.ASYNC_DATABASE_URL
 
@@ -58,30 +62,31 @@ async def init_db():
     """Initialize database tables without dropping existing data."""
     try:
         async with async_engine.begin() as conn:
-            import backend.models.domain  # noqa: F401
-            import backend.models.journal  # noqa: F401
-            import backend.models.exchange  # noqa: F401
-            import backend.models.strategy  # noqa: F401
-            import backend.models.analytics  # noqa: F401
-            import backend.models.ml  # noqa: F401
-            import backend.models.research  # noqa: F401
-            import backend.models.portfolio_opt  # noqa: F401
-            import backend.models.live_execution  # noqa: F401
-            import backend.models.observability  # noqa: F401
-            import backend.models.mlops  # noqa: F401
-            import backend.models.saas  # noqa: F401
-            import backend.models.compliance  # noqa: F401
-            import backend.models.execution_algos  # noqa: F401
-            import backend.models.marketdata  # noqa: F401
-            import backend.models.ai_agents  # noqa: F401
-            import backend.models.multiasset  # noqa: F401
-            import backend.models.saas_enterprise  # noqa: F401
-            import backend.models.platform_infra  # noqa: F401
-            import backend.models.quant_research_platform  # noqa: F401
-            import backend.models.alpha_factory_platform  # noqa: F401
-            import backend.models.execution_network_platform  # noqa: F401
-            import backend.models.ai_copilot_platform  # noqa: F401
-            await conn.run_sync(Base.metadata.create_all)
+            def create_tables(sync_conn):
+                import backend.models.domain  # noqa: F401
+                for mod_name in [
+                    "backend.models.journal", "backend.models.exchange", "backend.models.strategy",
+                    "backend.models.analytics", "backend.models.ml", "backend.models.research",
+                    "backend.models.live_execution", "backend.models.observability", "backend.models.mlops",
+                    "backend.models.saas", "backend.models.compliance", "backend.models.execution_algos",
+                    "backend.models.marketdata", "backend.models.ai_agents", "backend.models.multiasset",
+                    "backend.models.saas_enterprise", "backend.models.platform_infra",
+                    "backend.models.quant_research_platform", "backend.models.alpha_factory_platform",
+                    "backend.models.execution_network_platform", "backend.models.ai_copilot_platform"
+                ]:
+                    try:
+                        __import__(mod_name)
+                    except Exception:
+                        pass
+
+                import backend.models.domain  # noqa: F401
+                Base.metadata.create_all(sync_conn)
+
+
+
+            await conn.run_sync(create_tables)
+
+
 
 
 
@@ -123,7 +128,8 @@ async def init_db():
                     if inspector.has_table(tbl):
                         cols = [c["name"] for c in inspector.get_columns(tbl)]
                         if "user_id" not in cols:
-                            sync_conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE"))
+                            sync_conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN user_id INTEGER"))
+
 
                 if inspector.has_table("trades"):
                     columns = [c["name"] for c in inspector.get_columns("trades")]
@@ -149,7 +155,9 @@ async def init_db():
 
         logger.info("Database schema initialized/verified successfully.")
     except Exception as e:
-        logger.error(f"Error initializing database schema: {e}")
+        import traceback
+        logger.error(f"Error initializing database schema: {e}\n{traceback.format_exc()}")
+
 
 
 __all__ = ["Base", "async_engine", "AsyncSessionLocal", "get_db_session", "init_db"]

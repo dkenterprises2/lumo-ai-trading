@@ -643,6 +643,18 @@ class PaperTrader:
         self._sync_record_trade(trade_record)
         self._sync_save_portfolio()
 
+        try:
+            import asyncio
+            from backend.learning.feature_snapshot_builder import feature_snapshot_builder
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(feature_snapshot_builder.capture_entry_snapshot(pos_id))
+            except RuntimeError:
+                pass
+        except Exception as ex:
+            logger.debug(f"Snapshot capture skipped: {ex}")
+
+
         logger.info(f"Opened {side} position for {symbol} at ${price}: {position}")
         return {"status": "success", "message": f"Opened {side} position for {symbol} at ${price}", "position": position}
 
@@ -730,6 +742,18 @@ class PaperTrader:
         # Persist to DB
         self._sync_record_trade(trade_record)
         self._sync_save_portfolio()
+
+        try:
+            import asyncio
+            from backend.learning.trade_outcome_collector import trade_outcome_collector
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(trade_outcome_collector.record_trade_outcome(trade_record))
+            except RuntimeError:
+                pass
+        except Exception as ex:
+            logger.debug(f"Outcome collector skipped: {ex}")
+
 
         # Persist to Trade Journal
         journal_entry = {
