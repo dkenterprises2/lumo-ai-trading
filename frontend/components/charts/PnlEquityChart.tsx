@@ -46,6 +46,10 @@ export function PnlEquityChart({ pnlHistory }: PnlEquityChartProps) {
             <span className="text-slate-300 font-medium">Portfolio Equity</span>
           </div>
           <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-purple-400 animate-pulse" />
+            <span className="text-purple-400 font-semibold">Live Real-Time PnL</span>
+          </div>
+          <div className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
             <span className="text-slate-300 font-medium">Realized PnL</span>
           </div>
@@ -83,6 +87,14 @@ export function PnlEquityChart({ pnlHistory }: PnlEquityChartProps) {
             />
             <Line
               type="monotone"
+              dataKey="unrealized_pnl"
+              stroke="#c084fc"
+              strokeWidth={2}
+              dot={false}
+              name="Live PnL ($)"
+            />
+            <Line
+              type="monotone"
               dataKey="realized_pnl"
               stroke="#00e676"
               strokeWidth={1.5}
@@ -95,3 +107,4 @@ export function PnlEquityChart({ pnlHistory }: PnlEquityChartProps) {
     </div>
   );
 }
+

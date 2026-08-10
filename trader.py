@@ -459,16 +459,18 @@ class PaperTrader:
         # Equity history point snapshot
         now_ts = time.time()
         curr_equity = round(total_portfolio_value, 2)
-        if not self.equity_history or (now_ts - self.last_equity_save_time) >= 5.0 or self.equity_history[-1]["equity"] != curr_equity:
+        curr_unrealized = round(total_unrealized_pnl, 2)
+        if not self.equity_history or (now_ts - self.last_equity_save_time) >= 1.0 or self.equity_history[-1].get("unrealized_pnl") != curr_unrealized:
             self.last_equity_save_time = now_ts
             snapshot = {
                 "timestamp": time.strftime("%H:%M:%S"),
                 "equity": curr_equity,
                 "wallet": round(self.usdt_balance, 2),
                 "margin": round(total_open_margin, 2),
-                "unrealized_pnl": round(total_unrealized_pnl, 2),
+                "unrealized_pnl": curr_unrealized,
                 "realized_pnl": round(total_closed_pnl, 2)
             }
+
             self.equity_history.append(snapshot)
             if len(self.equity_history) > 100:
                 self.equity_history.pop(0)
