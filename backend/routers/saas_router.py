@@ -130,14 +130,17 @@ async def get_usage_history(org_id: str = Query("ORG-101"), current_user: UserMo
         ]
     }
 
+from backend.auth.admin_guard import require_super_admin
+
 @router.get("/api/admin/tenants")
-async def list_admin_tenants(current_user: UserModel = Depends(get_current_user)):
+async def list_admin_tenants(admin: UserModel = Depends(require_super_admin)):
     return {"total_tenants": 48, "tenants": organization_manager.list_organizations()}
 
 @router.get("/api/admin/revenue")
-async def get_admin_revenue_metrics(current_user: UserModel = Depends(get_current_user)):
+async def get_admin_revenue_metrics(admin: UserModel = Depends(require_super_admin)):
     return saas_analytics.get_revenue_metrics()
 
 @router.get("/api/admin/platform-metrics")
-async def get_admin_platform_metrics(current_user: UserModel = Depends(get_current_user)):
+async def get_admin_platform_metrics(admin: UserModel = Depends(require_super_admin)):
     return saas_analytics.get_platform_metrics()
+

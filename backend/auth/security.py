@@ -116,7 +116,8 @@ async def get_current_user(
 
     if not token:
         # Fallback to HTTP-only cookie
-        token = request.cookies.get("access_token")
+        token = request.cookies.get("lumo_access_token") or request.cookies.get("access_token")
+
 
     if not token:
         raise credentials_exception
@@ -158,7 +159,8 @@ async def get_optional_current_user(
 ) -> Optional[UserModel]:
     """Dependency that returns current user if authenticated, or None if unauthenticated/demo mode."""
     if not token:
-        token = request.cookies.get("access_token")
+        token = request.cookies.get("lumo_access_token") or request.cookies.get("access_token")
+
     if not token:
         return None
 

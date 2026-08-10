@@ -111,10 +111,12 @@ async def start_shadow_evaluation(
     return result
 
 
+from backend.auth.admin_guard import require_super_admin
+
 @router.post("/approve-deployment")
 async def approve_deployment(
     payload: Dict[str, Any] = Body(...),
-    current_user: Optional[UserModel] = Depends(get_optional_current_user)
+    admin: UserModel = Depends(require_super_admin)
 ):
     """Deploys candidate weights to production following explicit human approval."""
     experiment_id = str(payload.get("experiment_id", ""))
@@ -126,7 +128,7 @@ async def approve_deployment(
     if not human_approval:
         raise HTTPException(status_code=400, detail="Production deployment requires human_approval == True")
 
-    approver = current_user.email if current_user else "admin@lumo.trade"
+    approver = admin.email
     result = await learning_governance.approve_and_deploy(
         experiment_id=experiment_id,
         approver_email=approver,
@@ -139,7 +141,7 @@ async def approve_deployment(
 @router.post("/revert-weights")
 async def revert_weights(
     payload: Dict[str, Any] = Body(...),
-    current_user: Optional[UserModel] = Depends(get_optional_current_user)
+    admin: UserModel = Depends(require_super_admin)
 ):
     """Instantly rolls back active strategy weights to a target historical version (<1 sec)."""
     version = int(payload.get("version", 1))
@@ -148,6 +150,7 @@ async def revert_weights(
 
     result = await strategy_weight_loader.rollback_to_version(version, strategy_name, market_regime)
     return result
+
 
 
 @router.get("/performance-report")

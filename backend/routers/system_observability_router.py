@@ -14,6 +14,8 @@ from backend.infrastructure.postgres_migration import postgres_migration_layer
 
 router = APIRouter(tags=["Observability, Health & System Management"])
 
+from backend.auth.admin_guard import require_super_admin
+
 @router.get("/health")
 async def liveness_probe():
     """Liveness probe endpoint for Kubernetes / Docker Compose."""
@@ -31,24 +33,24 @@ async def prometheus_metrics():
     return Response(content=content, media_type="text/plain; version=0.0.4; charset=utf-8")
 
 @router.get("/api/system/status")
-async def get_system_status(current_user: UserModel = Depends(get_current_user)):
+async def get_system_status(admin: UserModel = Depends(require_super_admin)):
     """Return complete system component status."""
     return health_aggregator.get_full_system_status()
 
 @router.get("/api/system/alerts")
-async def get_system_alerts(current_user: UserModel = Depends(get_current_user)):
+async def get_system_alerts(admin: UserModel = Depends(require_super_admin)):
     """Return active system alerts."""
     return {
-        "user_id": current_user.id,
+        "user_id": admin.id,
         "alerts": alert_engine.get_active_alerts(),
         "total_active": len(alert_engine.get_active_alerts())
     }
 
 @router.get("/api/system/observability")
-async def get_system_observability_summary(current_user: UserModel = Depends(get_current_user)):
+async def get_system_observability_summary(admin: UserModel = Depends(require_super_admin)):
     """Return aggregated metrics, Redis Pub/Sub status, & database engine info."""
     return {
-        "user_id": current_user.id,
+        "user_id": admin.id,
         "tracing": opentelemetry_tracer.start_span("api_observability_request"),
         "redis_cluster": redis_streams_manager.get_cluster_status(),
         "database": postgres_migration_layer.get_database_status(),
@@ -60,16 +62,17 @@ async def get_system_observability_summary(current_user: UserModel = Depends(get
     }
 
 @router.post("/api/system/backup")
-async def trigger_manual_backup(current_user: UserModel = Depends(get_current_user)):
+async def trigger_manual_backup(admin: UserModel = Depends(require_super_admin)):
     """Trigger manual database snapshot backup."""
     snapshot = backup_manager.create_backup()
     return {
         "status": "BACKUP_CREATED",
-        "user_id": current_user.id,
+        "user_id": admin.id,
         "backup": snapshot
     }
 
 @router.post("/api/system/recovery-test")
-async def run_disaster_recovery_test(current_user: UserModel = Depends(get_current_user)):
+async def run_disaster_recovery_test(admin: UserModel = Depends(require_super_admin)):
     """Execute automated disaster recovery test."""
     return disaster_recovery_manager.execute_recovery_test()
+

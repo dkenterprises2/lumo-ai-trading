@@ -164,7 +164,9 @@ async def register_user(
 
     # Set cookies
     response.set_cookie(key="access_token", value=access_token, httponly=True, samesite="lax", max_age=60*60)
+    response.set_cookie(key="lumo_access_token", value=access_token, httponly=True, samesite="lax", max_age=60*60)
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, samesite="lax", max_age=7*24*3600)
+
 
 
     return {
@@ -275,7 +277,9 @@ async def login_user(
 
 
     response.set_cookie(key="access_token", value=access_token, httponly=True, samesite="lax", max_age=max_age_access)
+    response.set_cookie(key="lumo_access_token", value=access_token, httponly=True, samesite="lax", max_age=max_age_access)
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, samesite="lax", max_age=max_age_refresh)
+
 
     return {
         "status": "success",
@@ -311,7 +315,9 @@ async def logout_user(
         await session.commit()
 
     response.delete_cookie("access_token")
+    response.delete_cookie("lumo_access_token")
     response.delete_cookie("refresh_token")
+
 
     return {"status": "success", "message": "Logged out successfully"}
 
