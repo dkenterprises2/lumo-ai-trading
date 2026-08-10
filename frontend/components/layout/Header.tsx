@@ -41,10 +41,11 @@ export function Header({
   const [botState, setBotState] = React.useState<boolean | null>(null);
 
   React.useEffect(() => {
-    if (portfolio?.auto_bot_enabled !== undefined && botState === null) {
+    if (portfolio?.auto_bot_enabled !== undefined) {
       setBotState(portfolio.auto_bot_enabled);
     }
-  }, [portfolio?.auto_bot_enabled, botState]);
+  }, [portfolio?.auto_bot_enabled]);
+
 
 
   const portVal = portfolio?.total_portfolio_value;
