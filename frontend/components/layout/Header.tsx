@@ -39,12 +39,15 @@ export function Header({
 }: HeaderProps) {
   const { user } = useAuth();
   const [botState, setBotState] = React.useState<boolean | null>(null);
+  const lastAutoBot = React.useRef<boolean | undefined>(undefined);
 
   React.useEffect(() => {
-    if (portfolio?.auto_bot_enabled !== undefined) {
+    if (portfolio?.auto_bot_enabled !== undefined && portfolio.auto_bot_enabled !== lastAutoBot.current) {
+      lastAutoBot.current = portfolio.auto_bot_enabled;
       setBotState(portfolio.auto_bot_enabled);
     }
   }, [portfolio?.auto_bot_enabled]);
+
 
 
 
@@ -129,13 +132,16 @@ export function Header({
           <button
             onClick={async () => {
               const nextState = !isBotActive;
+              lastAutoBot.current = nextState;
               setBotState(nextState);
               try {
                 await onToggleBot(nextState);
               } catch (err) {
+                lastAutoBot.current = !nextState;
                 setBotState(!nextState);
               }
             }}
+
 
 
 

@@ -36,10 +36,11 @@ export default function BotsPage() {
                   <p className="text-xs text-slate-400">Scans 14 crypto pairs and executes trades automatically based on AI signals.</p>
                 </div>
               </div>
-              <button onClick={() => toggleBot(!currentPortfolio?.auto_bot_enabled)} className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${currentPortfolio?.auto_bot_enabled ? "bg-rose-500/20 text-rose-400 border border-rose-500/30" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"}`}>
+              <button onClick={async () => { await toggleBot(!currentPortfolio?.auto_bot_enabled); portfolioQuery.refetch(); }} className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 ${currentPortfolio?.auto_bot_enabled ? "bg-rose-500/20 text-rose-400 border border-rose-500/30" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"}`}>
                 <Power className="h-4 w-4" />
                 {currentPortfolio?.auto_bot_enabled ? "STOP BOT" : "START BOT"}
               </button>
+
             </div>
           </div>
         </main>
