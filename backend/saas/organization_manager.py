@@ -12,12 +12,25 @@ class OrganizationManager:
                 "name": "Alpha Quant Capital",
                 "slug": "alpha-quant",
                 "owner_id": 1,
+                "plan_tier": "INSTITUTIONAL",
+                "status": "ACTIVE",
+                "created_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+            },
+            {
+                "org_id": "ORG-ENTERPRISE",
+                "name": "Kumar Dharma Enterprise",
+                "slug": "kumar-dharma-enterprise",
+                "owner_id": 3,
+                "plan_tier": "ENTERPRISE",
+                "status": "ACTIVE",
                 "created_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
             }
         ]
         self._members: List[Dict[str, Any]] = [
-            {"member_id": "MEM-1", "org_id": "ORG-101", "user_id": 1, "role": "OWNER"}
+            {"member_id": "MEM-1", "org_id": "ORG-101", "user_id": 1, "role": "OWNER"},
+            {"member_id": "MEM-2", "org_id": "ORG-ENTERPRISE", "user_id": 3, "role": "OWNER"}
         ]
+
 
     def create_organization(self, name: str, owner_id: int) -> Dict[str, Any]:
         """Create new tenant organization."""
