@@ -25,8 +25,10 @@ import {
   Key,
   ChevronLeft,
   ChevronRight,
+  ShieldCheck,
   Zap
 } from "lucide-react";
+
 
 interface SidebarProps {
   activeTab?: string;
@@ -110,7 +112,23 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
 
         {/* Navigation List */}
         <nav className="p-3 space-y-1 overflow-y-auto max-h-[calc(100vh-140px)] scrollbar-thin scrollbar-thumb-slate-800">
+          {(user?.role?.toUpperCase() === 'SUPER_ADMIN' || user?.role?.toUpperCase() === 'SUPERADMIN' || user?.email?.toLowerCase() === 'jiodkd@gmail.com') && (
+            <Link
+              href="/admin"
+              title={collapsed ? "Super Admin Console" : undefined}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
+                pathname?.startsWith("/admin")
+                  ? "bg-gradient-to-r from-purple-500/30 to-blue-500/20 text-purple-300 border border-purple-500/40 shadow-lg shadow-purple-500/20"
+                  : "bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20"
+              }`}
+            >
+              <ShieldCheck className="h-5 w-5 shrink-0 text-purple-400" />
+              {!collapsed && <span className="truncate">Super Admin Console</span>}
+            </Link>
+          )}
+
           {sidebarItems.map((item) => {
+
             const Icon = item.icon;
             const isActive = pathname === item.href || (item.href !== "/" && pathname?.startsWith(item.href));
             return (

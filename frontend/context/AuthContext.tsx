@@ -108,12 +108,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('lumo_user_data', JSON.stringify(data.user));
     setIsLoading(false);
 
+    const userRole = (data.user?.role || '').toUpperCase();
+    const userEmail = (data.user?.email || '').toLowerCase();
+    const isSuperAdmin = userRole === 'SUPER_ADMIN' || userRole === 'SUPERADMIN' || userEmail === 'jiodkd@gmail.com';
+
+    let redirectUrl = isSuperAdmin ? '/admin' : '/dashboard';
     if (typeof window !== 'undefined') {
-      window.location.href = '/dashboard';
+      const params = new URLSearchParams(window.location.search);
+      const target = params.get('redirect');
+      if (target) redirectUrl = target;
+      window.location.href = redirectUrl;
     } else {
-      router.push('/dashboard');
+      router.push(redirectUrl);
     }
   };
+
 
   const register = async (userData: any) => {
     setIsLoading(true);
