@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiFetch } from '@/services/api';
 
 export interface AdminUser {
   id: number;
@@ -11,6 +12,7 @@ export interface AdminUser {
   avatar?: string;
   trading_mode?: string;
 }
+
 
 export function useAdminGuard() {
   const router = useRouter();
@@ -23,11 +25,10 @@ export function useAdminGuard() {
 
     async function checkAdminAuth() {
       try {
-        const res = await fetch('/api/auth/me', {
-          headers: { 'Cache-Control': 'no-cache' }
-        });
+        const res = await apiFetch('/api/auth/me');
 
         if (!res.ok) {
+
           if (isMounted) {
             setLoading(false);
             router.push('/login');
