@@ -47,18 +47,20 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
     try {
       setLoading(true);
       const res = await apiFetch('/api/preferences/trading');
-      const data = await res.json();
-      const prefs = data?.preferences || data;
-      if (prefs) {
-        setPreferences({
-          max_concurrent_trades: prefs.max_concurrent_trades ?? 10,
-          max_capital_per_trade_pct: prefs.max_capital_per_trade_pct ?? 10,
-          daily_loss_limit_pct: prefs.daily_loss_limit_pct ?? 5,
-          symbol_cooldown_minutes: prefs.symbol_cooldown_minutes ?? 10,
-          allowed_symbols: prefs.allowed_symbols || ['BTC/USDT', 'ETH/USDT'],
-          default_allocation_usd: prefs.default_allocation_usd ?? 1000,
-          default_leverage: prefs.default_leverage ?? 1
-        });
+      if (res.ok) {
+        const data = await res.json();
+        const prefs = data?.preferences || data;
+        if (prefs && typeof prefs.max_concurrent_trades === 'number') {
+          setPreferences({
+            max_concurrent_trades: prefs.max_concurrent_trades ?? 10,
+            max_capital_per_trade_pct: prefs.max_capital_per_trade_pct ?? 10,
+            daily_loss_limit_pct: prefs.daily_loss_limit_pct ?? 5,
+            symbol_cooldown_minutes: prefs.symbol_cooldown_minutes ?? 10,
+            allowed_symbols: prefs.allowed_symbols || ['BTC/USDT', 'ETH/USDT'],
+            default_allocation_usd: prefs.default_allocation_usd ?? 1000,
+            default_leverage: prefs.default_leverage ?? 1
+          });
+        }
       }
     } catch (err: any) {
       console.warn('Failed to load trading preferences:', err);
@@ -83,13 +85,23 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
       });
       const data = await res.json();
 
+      if (!res.ok) {
+        const detail = data?.detail || `Backend error (${res.status}).`;
+        if (res.status === 401) {
+          setErrorMessage('Session expired. Please sign out and log back in.');
+        } else {
+          setErrorMessage(detail);
+        }
+        return;
+      }
+
       const updated = data?.preferences || data;
       if (updated) {
         setPreferences({
-          max_concurrent_trades: updated.max_concurrent_trades,
-          max_capital_per_trade_pct: updated.max_capital_per_trade_pct,
-          daily_loss_limit_pct: updated.daily_loss_limit_pct,
-          symbol_cooldown_minutes: updated.symbol_cooldown_minutes,
+          max_concurrent_trades: updated.max_concurrent_trades ?? preferences.max_concurrent_trades,
+          max_capital_per_trade_pct: updated.max_capital_per_trade_pct ?? preferences.max_capital_per_trade_pct,
+          daily_loss_limit_pct: updated.daily_loss_limit_pct ?? preferences.daily_loss_limit_pct,
+          symbol_cooldown_minutes: updated.symbol_cooldown_minutes ?? preferences.symbol_cooldown_minutes,
           allowed_symbols: updated.allowed_symbols || preferences.allowed_symbols,
           default_allocation_usd: updated.default_allocation_usd ?? preferences.default_allocation_usd,
           default_leverage: updated.default_leverage ?? preferences.default_leverage
@@ -105,6 +117,7 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
       setSaving(false);
     }
   };
+
 
   const getPlanBadgeConfig = (planStr: string) => {
     const p = (planStr || 'FREE').toUpperCase();
