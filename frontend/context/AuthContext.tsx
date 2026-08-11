@@ -11,7 +11,10 @@ export interface User {
   timezone: string;
   trading_mode: string;
   role?: string;
+  plan?: string;
+  plan_tier?: string;
 }
+
 
 
 interface AuthContextType {

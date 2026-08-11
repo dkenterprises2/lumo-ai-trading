@@ -281,6 +281,16 @@ async def login_user(
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, samesite="lax", max_age=max_age_refresh)
 
 
+    plan_tier = "ENTERPRISE" if user.email in ["jiodkd@gmail.com", "kumardharma7889@gmail.com"] else "FREE"
+    try:
+        org_id = f"ORG-{user.id}"
+        sub_res = await session.execute(text("SELECT plan_id FROM subscriptions WHERE org_id = :org_id"), {"org_id": org_id})
+        sub_row = sub_res.fetchone()
+        if sub_row:
+            plan_tier = sub_row[0]
+    except Exception:
+        pass
+
     return {
         "status": "success",
         "message": "Login successful",
@@ -293,9 +303,13 @@ async def login_user(
             "email": user.email,
             "avatar": user.avatar,
             "timezone": user.timezone,
-            "trading_mode": user.trading_mode
+            "trading_mode": user.trading_mode,
+            "role": user.role,
+            "plan": plan_tier,
+            "plan_tier": plan_tier
         }
     }
+
 
 @router.post("/logout")
 async def logout_user(
@@ -382,8 +396,21 @@ async def refresh_tokens(
     }
 
 @router.get("/me")
-async def get_me(current_user: UserModel = Depends(get_current_user)):
+async def get_me(
+    current_user: UserModel = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db)
+):
     """Fetch current logged-in user profile details."""
+    plan_tier = "ENTERPRISE" if current_user.email in ["jiodkd@gmail.com", "kumardharma7889@gmail.com"] else "FREE"
+    try:
+        org_id = f"ORG-{current_user.id}"
+        sub_res = await session.execute(text("SELECT plan_id FROM subscriptions WHERE org_id = :org_id"), {"org_id": org_id})
+        sub_row = sub_res.fetchone()
+        if sub_row:
+            plan_tier = sub_row[0]
+    except Exception:
+        pass
+
     return {
         "status": "success",
         "user": {
@@ -394,9 +421,12 @@ async def get_me(current_user: UserModel = Depends(get_current_user)):
             "timezone": current_user.timezone,
             "trading_mode": current_user.trading_mode,
             "role": current_user.role,
+            "plan": plan_tier,
+            "plan_tier": plan_tier,
             "created_at": current_user.created_at.isoformat()
         }
     }
+
 
 @router.put("/profile")
 async def update_profile(

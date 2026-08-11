@@ -164,9 +164,12 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
               {!collapsed && (
                 <div className="flex flex-col overflow-hidden">
                   <span className="text-xs font-semibold text-slate-200 truncate">{user.name}</span>
-                  <span className="text-[10px] text-cyan-400 truncate">{user.trading_mode} Mode</span>
+                  <span className="text-[10px] text-cyan-400 truncate flex items-center gap-1">
+                    {user.trading_mode} • <span className="text-purple-400 font-bold uppercase tracking-wider">{user.plan || user.plan_tier || 'ENTERPRISE'}</span>
+                  </span>
                 </div>
               )}
+
             </Link>
             <button
               onClick={logout}
