@@ -15,6 +15,8 @@ class TradingPreferencesUpdateSchema(BaseModel):
     daily_loss_limit_pct: Optional[float] = Field(default=None, ge=1.0, le=20.0)
     symbol_cooldown_minutes: Optional[int] = Field(default=None, ge=0, le=120)
     allowed_symbols: Optional[List[str]] = None
+    default_allocation_usd: Optional[float] = Field(default=None, ge=10.0, le=100000.0)
+    default_leverage: Optional[int] = Field(default=None, ge=1, le=100)
 
 @router.get("/trading")
 async def get_trading_preferences(current_user: UserModel = Depends(get_current_user)):
@@ -26,6 +28,8 @@ async def get_trading_preferences(current_user: UserModel = Depends(get_current_
     daily_loss_pct = getattr(trader_inst.risk_manager.config, "max_daily_loss_pct", 5.0)
     cooldown_mins = getattr(trader_inst, "symbol_cooldown_minutes", 10)
     allowed_syms = getattr(trader_inst, "allowed_symbols", ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "AVAX/USDT", "DOGE/USDT", "XRP/USDT", "ADA/USDT", "LINK/USDT", "DOT/USDT"])
+    alloc_usd = getattr(trader_inst, "default_allocation_usd", 1000.0)
+    leverage = getattr(trader_inst, "default_leverage", 1)
     
     return {
         "status": "success",
@@ -34,14 +38,17 @@ async def get_trading_preferences(current_user: UserModel = Depends(get_current_
             "max_capital_per_trade_pct": max_cap_pct,
             "daily_loss_limit_pct": daily_loss_pct,
             "symbol_cooldown_minutes": cooldown_mins,
-            "allowed_symbols": allowed_syms
+            "allowed_symbols": allowed_syms,
+            "default_allocation_usd": alloc_usd,
+            "default_leverage": leverage
         },
-        # Direct key mappings for flexible frontend consumption
         "max_concurrent_trades": max_trades,
         "max_capital_per_trade_pct": max_cap_pct,
         "daily_loss_limit_pct": daily_loss_pct,
         "symbol_cooldown_minutes": cooldown_mins,
-        "allowed_symbols": allowed_syms
+        "allowed_symbols": allowed_syms,
+        "default_allocation_usd": alloc_usd,
+        "default_leverage": leverage
     }
 
 @router.put("/trading")
@@ -69,6 +76,12 @@ async def update_trading_preferences(
     if body.allowed_symbols is not None:
         trader_inst.allowed_symbols = body.allowed_symbols
 
+    if body.default_allocation_usd is not None:
+        trader_inst.default_allocation_usd = body.default_allocation_usd
+
+    if body.default_leverage is not None:
+        trader_inst.default_leverage = body.default_leverage
+
     await trader_inst.save_portfolio_async()
 
     max_trades = trader_inst.risk_manager.config.max_concurrent_trades
@@ -76,8 +89,10 @@ async def update_trading_preferences(
     daily_loss_pct = trader_inst.risk_manager.config.max_daily_loss_pct
     cooldown_mins = getattr(trader_inst, "symbol_cooldown_minutes", 10)
     allowed_syms = getattr(trader_inst, "allowed_symbols", ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "AVAX/USDT", "DOGE/USDT", "XRP/USDT", "ADA/USDT", "LINK/USDT", "DOT/USDT"])
+    alloc_usd = getattr(trader_inst, "default_allocation_usd", 1000.0)
+    leverage = getattr(trader_inst, "default_leverage", 1)
 
-    logger.info(f"[PREFERENCES_UPDATED] UserID={current_user.id} | MaxTrades={max_trades} | MaxCap={max_cap_pct}% | DailyLossLimit={daily_loss_pct}% | Cooldown={cooldown_mins}m")
+    logger.info(f"[PREFERENCES_UPDATED] UserID={current_user.id} | MaxTrades={max_trades} | MaxCap={max_cap_pct}% | DailyLossLimit={daily_loss_pct}% | Cooldown={cooldown_mins}m | Alloc=${alloc_usd} | Leverage={leverage}x")
 
     return {
         "status": "success",
@@ -87,11 +102,16 @@ async def update_trading_preferences(
             "max_capital_per_trade_pct": max_cap_pct,
             "daily_loss_limit_pct": daily_loss_pct,
             "symbol_cooldown_minutes": cooldown_mins,
-            "allowed_symbols": allowed_syms
+            "allowed_symbols": allowed_syms,
+            "default_allocation_usd": alloc_usd,
+            "default_leverage": leverage
         },
         "max_concurrent_trades": max_trades,
         "max_capital_per_trade_pct": max_cap_pct,
         "daily_loss_limit_pct": daily_loss_pct,
         "symbol_cooldown_minutes": cooldown_mins,
-        "allowed_symbols": allowed_syms
+        "allowed_symbols": allowed_syms,
+        "default_allocation_usd": alloc_usd,
+        "default_leverage": leverage
     }
+

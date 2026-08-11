@@ -11,6 +11,8 @@ interface TradingPreferences {
   daily_loss_limit_pct: number;
   symbol_cooldown_minutes: number;
   allowed_symbols: string[];
+  default_allocation_usd: number;
+  default_leverage: number;
 }
 
 interface SubscriptionLimitsCardProps {
@@ -29,7 +31,9 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
     max_capital_per_trade_pct: 10,
     daily_loss_limit_pct: 5,
     symbol_cooldown_minutes: 10,
-    allowed_symbols: ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'AVAX/USDT']
+    allowed_symbols: ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'AVAX/USDT'],
+    default_allocation_usd: 1000,
+    default_leverage: 1
   });
 
   const [loading, setLoading] = useState<boolean>(true);
@@ -51,7 +55,9 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
           max_capital_per_trade_pct: prefs.max_capital_per_trade_pct ?? 10,
           daily_loss_limit_pct: prefs.daily_loss_limit_pct ?? 5,
           symbol_cooldown_minutes: prefs.symbol_cooldown_minutes ?? 10,
-          allowed_symbols: prefs.allowed_symbols || ['BTC/USDT', 'ETH/USDT']
+          allowed_symbols: prefs.allowed_symbols || ['BTC/USDT', 'ETH/USDT'],
+          default_allocation_usd: prefs.default_allocation_usd ?? 1000,
+          default_leverage: prefs.default_leverage ?? 1
         });
       }
     } catch (err: any) {
@@ -84,10 +90,11 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
           max_capital_per_trade_pct: updated.max_capital_per_trade_pct,
           daily_loss_limit_pct: updated.daily_loss_limit_pct,
           symbol_cooldown_minutes: updated.symbol_cooldown_minutes,
-          allowed_symbols: updated.allowed_symbols || preferences.allowed_symbols
+          allowed_symbols: updated.allowed_symbols || preferences.allowed_symbols,
+          default_allocation_usd: updated.default_allocation_usd ?? preferences.default_allocation_usd,
+          default_leverage: updated.default_leverage ?? preferences.default_leverage
         });
       }
-
 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -138,6 +145,8 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
 
   const allowedTradesOptions = [1, 2, 3, 5, 10, 20, 50];
   const cooldownOptions = [0, 5, 10, 15, 30, 60];
+  const leverageOptions = [1, 2, 3, 5, 10, 20, 50, 100];
+  const allocationPresets = [100, 500, 1000, 2500, 5000, 10000, 25000, 50000];
 
   return (
     <>
@@ -178,7 +187,7 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
             className="w-full flex items-center justify-between p-3 rounded-2xl bg-slate-950/60 border border-slate-800 text-xs font-semibold text-slate-300"
           >
             <span>
-              {badgeConfig.label} • {preferences.max_concurrent_trades} Trades • {preferences.max_capital_per_trade_pct}% Risk
+              {badgeConfig.label} • {preferences.max_concurrent_trades} Trades • ${preferences.default_allocation_usd} • {preferences.default_leverage}x
             </span>
             {isMobileExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </button>
@@ -204,7 +213,7 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
             </div>
           </div>
 
-          {/* Interactive Controls */}
+          {/* Interactive Controls Grid (6 Fields) */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Max Concurrent Trades */}
             <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-800/60 space-y-1.5">
@@ -227,10 +236,54 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
               </select>
             </div>
 
+            {/* Amount Per Trade ($ USDT) */}
+            <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-800/60 space-y-1.5">
+              <label className="text-[11px] font-semibold text-slate-400 flex justify-between">
+                <span>Amount Per Trade</span>
+                <span className="text-emerald-400 font-bold">${preferences.default_allocation_usd.toLocaleString()} USDT</span>
+              </label>
+              <div className="relative flex items-center">
+                <span className="absolute left-3 text-slate-500 font-bold text-xs">$</span>
+                <input
+                  type="number"
+                  min="10"
+                  max="100000"
+                  step="100"
+                  value={preferences.default_allocation_usd}
+                  onChange={(e) =>
+                    setPreferences({ ...preferences, default_allocation_usd: Number(e.target.value) })
+                  }
+                  className="w-full py-1.5 pl-7 pr-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-mono text-slate-100 focus:outline-none focus:border-cyan-500/50"
+                  placeholder="1000"
+                />
+              </div>
+            </div>
+
+            {/* Leverage Multiplier (1x - 100x) */}
+            <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-800/60 space-y-1.5">
+              <label className="text-[11px] font-semibold text-slate-400 flex justify-between">
+                <span>Leverage Multiplier</span>
+                <span className="text-amber-400 font-bold">{preferences.default_leverage}x</span>
+              </label>
+              <select
+                value={preferences.default_leverage}
+                onChange={(e) =>
+                  setPreferences({ ...preferences, default_leverage: Number(e.target.value) })
+                }
+                className="w-full py-1.5 px-2.5 rounded-xl bg-slate-900 border border-slate-800 text-xs font-semibold text-slate-200 focus:outline-none focus:border-cyan-500/50"
+              >
+                {leverageOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}x Leverage
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Capital Per Trade % */}
             <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-800/60 space-y-1.5">
               <label className="text-[11px] font-semibold text-slate-400 flex justify-between">
-                <span>Capital per Trade</span>
+                <span>Capital per Trade (%)</span>
                 <span className="text-purple-400 font-bold">{preferences.max_capital_per_trade_pct}%</span>
               </label>
               <input
@@ -249,7 +302,7 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
             {/* Daily Loss Limit % */}
             <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-800/60 space-y-1.5">
               <label className="text-[11px] font-semibold text-slate-400 flex justify-between">
-                <span>Daily Loss Limit</span>
+                <span>Daily Loss Limit (%)</span>
                 <span className="text-rose-400 font-bold">{preferences.daily_loss_limit_pct}%</span>
               </label>
               <input
@@ -269,7 +322,7 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
             <div className="p-3 rounded-2xl bg-slate-950/40 border border-slate-800/60 space-y-1.5">
               <label className="text-[11px] font-semibold text-slate-400 flex justify-between">
                 <span>Symbol Cooldown</span>
-                <span className="text-emerald-400 font-bold">{preferences.symbol_cooldown_minutes}m</span>
+                <span className="text-cyan-400 font-bold">{preferences.symbol_cooldown_minutes}m</span>
               </label>
               <select
                 value={preferences.symbol_cooldown_minutes}
@@ -286,6 +339,7 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
               </select>
             </div>
           </div>
+
 
           {/* Feedback messages */}
           {errorMessage && (

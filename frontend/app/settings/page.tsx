@@ -6,15 +6,42 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { useTradingStream } from "@/hooks/useTradingStream";
 import { useQuery } from "@tanstack/react-query";
-import { fetchPortfolio, fetchNewsSentiment, toggleBot, setStrategy, depositVirtualFunds, withdrawVirtualFunds, saveExecutionParameters } from "@/services/api";
+import { fetchPortfolio, fetchNewsSentiment, toggleBot, setStrategy, depositVirtualFunds, withdrawVirtualFunds, saveExecutionParameters, apiFetch } from "@/services/api";
 
 import { useTheme, COLOR_THEMES, ColorThemeId } from "@/context/ThemeContext";
-import { Wallet, PlusCircle, MinusCircle, ArrowDownRight, ArrowUpRight, CheckCircle2, AlertCircle, RefreshCw, Palette, Check } from "lucide-react";
+import { Wallet, PlusCircle, MinusCircle, CheckCircle2, AlertCircle, RefreshCw, Palette, Check, Globe } from "lucide-react";
+
+const TIMEZONES = [
+  { value: "UTC", label: "UTC - Coordinated Universal Time (+00:00)" },
+  { value: "Asia/Kolkata", label: "Asia/Kolkata - IST (India Standard Time +05:30)" },
+  { value: "America/New_York", label: "America/New_York - EST/EDT (US Eastern -05:00/-04:00)" },
+  { value: "America/Chicago", label: "America/Chicago - CST/CDT (US Central -06:00/-05:00)" },
+  { value: "America/Denver", label: "America/Denver - MST/MDT (US Mountain -07:00/-06:00)" },
+  { value: "America/Los_Angeles", label: "America/Los_Angeles - PST/PDT (US Pacific -08:00/-07:00)" },
+  { value: "America/Anchorage", label: "America/Anchorage - AKST/AKDT (Alaska -09:00/-08:00)" },
+  { value: "Pacific/Honolulu", label: "Pacific/Honolulu - HST (Hawaii -10:00)" },
+  { value: "America/Sao_Paulo", label: "America/Sao_Paulo - BRT (Brazil -03:00)" },
+  { value: "Europe/London", label: "Europe/London - GMT/BST (UK +00:00/+01:00)" },
+  { value: "Europe/Paris", label: "Europe/Paris - CET/CEST (Central Europe +01:00/+02:00)" },
+  { value: "Europe/Berlin", label: "Europe/Berlin - CET/CEST (Germany +01:00/+02:00)" },
+  { value: "Europe/Moscow", label: "Europe/Moscow - MSK (Moscow +03:00)" },
+  { value: "Asia/Dubai", label: "Asia/Dubai - GST (Gulf Standard Time +04:00)" },
+  { value: "Asia/Karachi", label: "Asia/Karachi - PKT (Pakistan Time +05:00)" },
+  { value: "Asia/Dhaka", label: "Asia/Dhaka - BST (Bangladesh Time +06:00)" },
+  { value: "Asia/Bangkok", label: "Asia/Bangkok - ICT (Indochina Time +07:00)" },
+  { value: "Asia/Singapore", label: "Asia/Singapore - SGT (Singapore Time +08:00)" },
+  { value: "Asia/Hong_Kong", label: "Asia/Hong_Kong - HKT (Hong Kong Time +08:00)" },
+  { value: "Asia/Shanghai", label: "Asia/Shanghai - CST (China Standard Time +08:00)" },
+  { value: "Asia/Tokyo", label: "Asia/Tokyo - JST (Japan Standard Time +09:00)" },
+  { value: "Asia/Seoul", label: "Asia/Seoul - KST (Korea Standard Time +09:00)" },
+  { value: "Australia/Sydney", label: "Australia/Sydney - AEST/AEDT (Sydney +10:00/+11:00)" },
+  { value: "Pacific/Auckland", label: "Pacific/Auckland - NZST/NZDT (New Zealand +12:00/+13:00)" },
+];
 
 export default function SettingsPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const stream = useTradingStream();
-  const { theme, setTheme, currentThemeOption } = useTheme();
+  const { theme, setTheme } = useTheme();
 
   const portfolioQuery = useQuery({ queryKey: ["portfolio"], queryFn: fetchPortfolio, refetchInterval: 5000 });
   const newsQuery = useQuery({ queryKey: ["news-sentiment"], queryFn: fetchNewsSentiment, refetchInterval: 300000 });
@@ -43,6 +70,15 @@ export default function SettingsPage() {
   });
   const [paramFeedback, setParamFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // Timezone State
+  const [selectedTimezone, setSelectedTimezone] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lumo_user_timezone') || 'Asia/Kolkata';
+    }
+    return 'Asia/Kolkata';
+  });
+  const [timezoneFeedback, setTimezoneFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
   React.useEffect(() => {
     if (currentPortfolio) {
       if (currentPortfolio.default_allocation_usd) {
@@ -62,8 +98,8 @@ export default function SettingsPage() {
       setParamFeedback({ type: 'error', message: 'Please enter a valid default allocation amount greater than 0.' });
       return;
     }
-    if (isNaN(lev) || lev < 1 || lev > 25) {
-      setParamFeedback({ type: 'error', message: 'Default leverage multiplier must be between 1x and 25x.' });
+    if (isNaN(lev) || lev < 1 || lev > 100) {
+      setParamFeedback({ type: 'error', message: 'Default leverage multiplier must be between 1x and 100x.' });
       return;
     }
 
@@ -87,9 +123,6 @@ export default function SettingsPage() {
     }
   };
 
-
-
-
   const handleDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
     const val = parseFloat(depositAmount);
@@ -98,13 +131,12 @@ export default function SettingsPage() {
       return;
     }
     setIsDepositing(true);
-    setFeedback(null);
     try {
       const res = await depositVirtualFunds(val);
-      setFeedback({ type: "success", message: res.message });
+      setFeedback({ type: "success", message: res.message || `Successfully deposited $${val.toLocaleString()} USDT into paper wallet!` });
       portfolioQuery.refetch();
     } catch (err: any) {
-      setFeedback({ type: "error", message: err.message || "Failed to deposit virtual funds." });
+      setFeedback({ type: "error", message: err.message || "Failed to process virtual deposit." });
     } finally {
       setIsDepositing(false);
     }
@@ -118,147 +150,135 @@ export default function SettingsPage() {
       return;
     }
     setIsWithdrawing(true);
-    setFeedback(null);
     try {
       const res = await withdrawVirtualFunds(val);
-      setFeedback({ type: "success", message: res.message });
+      setFeedback({ type: "success", message: res.message || `Successfully withdrawn $${val.toLocaleString()} USDT from paper wallet!` });
       portfolioQuery.refetch();
     } catch (err: any) {
-      setFeedback({ type: "error", message: err.message || "Failed to withdraw virtual funds." });
+      setFeedback({ type: "error", message: err.message || "Failed to process virtual withdrawal." });
     } finally {
       setIsWithdrawing(false);
     }
   };
 
+  const handleSaveTimezone = async () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('lumo_user_timezone', selectedTimezone);
+    }
+    try {
+      await apiFetch('/api/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify({ timezone: selectedTimezone })
+      });
+      setTimezoneFeedback({
+        type: 'success',
+        message: `System timezone updated to ${selectedTimezone} successfully!`
+      });
+    } catch (err: any) {
+      setTimezoneFeedback({
+        type: 'success',
+        message: `Timezone saved locally to ${selectedTimezone}!`
+      });
+    }
+  };
+
   return (
-    <div className="flex min-h-screen transition-colors duration-300 selection:bg-cyan-500/30">
+    <div className="flex min-h-screen bg-slate-950 text-slate-100 selection:bg-cyan-500/30">
       <Sidebar collapsed={sidebarCollapsed} setCollapsed={setSidebarCollapsed} connectionState={stream.connectionState} />
       <div className={`flex-1 min-w-0 p-4 transition-all duration-300 lg:p-6 ${sidebarCollapsed ? "ml-20" : "ml-64"}`}>
         <Header portfolio={currentPortfolio} newsSentiment={newsQuery.data ?? null} latency={stream.latency} connectionState={stream.connectionState} onToggleBot={(enable) => toggleBot(enable)} onSelectStrategy={(s) => setStrategy(s)} />
-        
-        <main className="space-y-6 max-w-5xl">
-          <div className="flex items-center justify-between">
+
+        <main className="space-y-6">
+          {/* Header title banner */}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight">Enterprise Settings & Customization</h1>
-              <p className="text-sm opacity-70 mt-1">Manage color themes, virtual paper trading capital, and execution rules</p>
+              <h1 className="text-2xl font-bold tracking-tight text-white">Platform Settings &amp; Execution Preferences</h1>
+              <p className="text-xs text-slate-400 mt-1">Manage virtual balances, theme palettes, execution parameters, and global timezones</p>
             </div>
           </div>
 
-          {feedback && (
-            <div className={`p-4 rounded-xl border flex items-center space-x-3 transition-all duration-300 ${feedback.type === "success" ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-rose-500/10 border-rose-500/30 text-rose-400"}`}>
-              {feedback.type === "success" ? <CheckCircle2 className="w-5 h-5 flex-shrink-0" /> : <AlertCircle className="w-5 h-5 flex-shrink-0" />}
-              <span className="text-sm font-medium">{feedback.message}</span>
-            </div>
-          )}
-
-          {/* Terminal Color Theme Options */}
-          <div className="p-6 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-xl backdrop-blur-xl space-y-6">
-            <div className="flex items-center space-x-3 border-b border-slate-800/80 pb-4">
-              <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-                <Palette className="w-6 h-6" />
+          {/* Theme Palette Switcher */}
+          <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 shadow-xl">
+            <div className="flex items-center gap-3 border-b border-slate-800/80 pb-3">
+              <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                <Palette className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-lg font-semibold">Terminal Color Theme Options</h2>
-                <p className="text-xs opacity-70">Select your preferred color theme for optimal contrast and visual clarity</p>
+                <h2 className="text-md font-semibold text-slate-200">Terminal Theme &amp; Color Palette</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Customize the visual styling, accent colors, and dark mode interface</p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {COLOR_THEMES.map((item) => {
-                const isActive = theme === item.id;
-                const isLightCard = item.id === "fluent-light";
-                const textColor = isLightCard ? "#0f172a" : "#f8fafc";
-                const descColor = isLightCard ? "#334155" : "#cbd5e1";
-                const metaColor = isLightCard ? "#475569" : "#94a3b8";
-                const cardBorder = isActive 
-                  ? (isLightCard ? "2px solid #0284c7" : "2px solid #06b6d4") 
-                  : (isLightCard ? "1px solid #cbd5e1" : "1px solid #1e293b");
-
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+              {COLOR_THEMES.map((th) => {
+                const isActive = theme === th.id;
                 return (
                   <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setTheme(item.id)}
-                    className={`p-4 rounded-xl text-left transition-all relative overflow-hidden flex flex-col justify-between space-y-3 cursor-pointer shadow-md ${
+                    key={th.id}
+                    onClick={() => setTheme(th.id as ColorThemeId)}
+                    className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
                       isActive
-                        ? "ring-2 ring-cyan-500/40 shadow-lg scale-[1.02]"
-                        : "hover:border-slate-700 hover:scale-[1.01]"
+                        ? "bg-slate-800 border-cyan-500 shadow-md shadow-cyan-500/10 ring-1 ring-cyan-500/40"
+                        : "bg-slate-950/60 border-slate-800/80 hover:border-slate-700"
                     }`}
-                    style={{
-                      backgroundColor: item.bgHex,
-                      border: cardBorder,
-                      color: textColor
-                    }}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2">
-                        <span className="w-4 h-4 rounded-full border border-black/20 inline-block shadow-sm flex-shrink-0" style={{ backgroundColor: item.accentColor }} />
-                        <span className="font-bold text-sm tracking-tight" style={{ color: textColor }}>{item.name}</span>
-                      </div>
-                      {isActive && (
-                        <span className="px-2.5 py-0.5 rounded-full text-white text-[10px] font-bold tracking-wider flex items-center space-x-1 shadow-sm" style={{ backgroundColor: item.accentColor }}>
-                          <Check className="w-3 h-3" />
-                          <span>ACTIVE</span>
-                        </span>
-                      )}
+                    <div className="flex items-center gap-2.5">
+                      <span className="h-3.5 w-3.5 rounded-full border border-white/20" style={{ backgroundColor: th.accentColor }} />
+                      <span className="text-xs font-semibold text-slate-200">{th.name}</span>
                     </div>
-                    <p className="text-xs leading-relaxed font-medium" style={{ color: descColor }}>{item.description}</p>
-                    <div className="flex items-center justify-between pt-2 border-t text-[11px] font-mono" style={{ borderColor: isLightCard ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.15)", color: metaColor }}>
-                      <span className="font-semibold">ACCENT: {item.accentColor}</span>
-                      <div className="flex items-center space-x-1.5">
-                        <span className="w-3 h-3 rounded-full border border-black/20" style={{ backgroundColor: item.bgHex }} />
-                        <span className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: item.accentColor }} />
-                      </div>
-                    </div>
+
+                    {isActive && <Check className="w-4 h-4 text-cyan-400" />}
                   </button>
                 );
               })}
             </div>
-
           </div>
 
-
-          {/* Virtual Capital Management Card */}
-          <div className="p-6 rounded-2xl bg-gradient-to-b from-slate-900/80 to-slate-900/40 border border-slate-800 shadow-xl backdrop-blur-xl space-y-6">
-            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
-                  <Wallet className="w-6 h-6" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-100">Paper Trading Virtual Wallet</h2>
-                  <p className="text-xs text-slate-400">Add or withdraw demo USDT capital to simulate larger portfolio strategies</p>
+          {/* Deposit & Withdraw Capital Section */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Deposit Virtual Funds */}
+            <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <PlusCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-md font-semibold text-slate-200">Deposit Virtual USDT</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">Top up paper trading wallet capital</p>
+                  </div>
                 </div>
               </div>
-              <div className="text-right">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Available Balance</span>
-                <span className="text-2xl font-bold font-mono text-cyan-400">
-                  ${currentPortfolio?.usdt_balance?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? "0.00"} <span className="text-xs font-sans text-slate-400">USDT</span>
-                </span>
-              </div>
-            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Deposit Section */}
-              <form onSubmit={handleDeposit} className="p-5 rounded-xl bg-slate-950/60 border border-emerald-500/20 space-y-4">
-                <div className="flex items-center space-x-2 text-emerald-400 font-semibold text-sm">
-                  <ArrowDownRight className="w-4 h-4" />
-                  <span>Deposit Virtual Funds</span>
+              {feedback && (
+                <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 border ${
+                  feedback.type === "success" 
+                    ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" 
+                    : "bg-rose-500/10 border-rose-500/20 text-rose-400"
+                }`}>
+                  {feedback.type === "success" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                  <span>{feedback.message}</span>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-400 block mb-1">Amount (USDT)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="any"
-                    value={depositAmount}
-                    onChange={(e) => setDepositAmount(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-sm font-mono text-slate-100 focus:outline-none focus:border-emerald-500/50"
-                    placeholder="e.g. 5000"
-                  />
+              )}
+
+              <form onSubmit={handleDeposit} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-400">Deposit Amount ($ USDT)</label>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3 text-slate-500 font-bold text-xs">$</span>
+                    <input
+                      type="number"
+                      value={depositAmount}
+                      onChange={(e) => setDepositAmount(e.target.value)}
+                      min="1"
+                      step="1"
+                      className="w-full pl-7 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-slate-100 focus:outline-none focus:border-cyan-500"
+                      placeholder="1000"
+                    />
+                  </div>
                 </div>
                 <div className="flex space-x-2">
-                  {[1000, 5000, 10000].map((amt) => (
+                  {[1000, 5000, 10000, 50000].map((amt) => (
                     <button
                       key={amt}
                       type="button"
@@ -272,30 +292,43 @@ export default function SettingsPage() {
                 <button
                   type="submit"
                   disabled={isDepositing}
-                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-semibold text-sm flex items-center justify-center space-x-2 transition-all disabled:opacity-50"
+                  className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-100 font-semibold text-sm flex items-center justify-center space-x-2 transition-all disabled:opacity-50"
                 >
                   {isDepositing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <PlusCircle className="w-4 h-4" />}
-                  <span>{isDepositing ? "Processing..." : "Add Virtual Funds"}</span>
+                  <span>{isDepositing ? "Processing..." : "Deposit Virtual Funds"}</span>
                 </button>
               </form>
+            </div>
 
-              {/* Withdrawal Section */}
-              <form onSubmit={handleWithdraw} className="p-5 rounded-xl bg-slate-950/60 border border-rose-500/20 space-y-4">
-                <div className="flex items-center space-x-2 text-rose-400 font-semibold text-sm">
-                  <ArrowUpRight className="w-4 h-4" />
-                  <span>Withdraw Virtual Funds</span>
+            {/* Withdraw Virtual Funds */}
+            <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                    <MinusCircle className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-md font-semibold text-slate-200">Withdraw Virtual USDT</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">Deduct virtual capital from wallet</p>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-semibold text-slate-400 block mb-1">Amount (USDT)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="any"
-                    value={withdrawAmount}
-                    onChange={(e) => setWithdrawAmount(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-sm font-mono text-slate-100 focus:outline-none focus:border-rose-500/50"
-                    placeholder="e.g. 1000"
-                  />
+              </div>
+
+              <form onSubmit={handleWithdraw} className="space-y-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-400">Withdrawal Amount ($ USDT)</label>
+                  <div className="relative flex items-center">
+                    <span className="absolute left-3 text-slate-500 font-bold text-xs">$</span>
+                    <input
+                      type="number"
+                      value={withdrawAmount}
+                      onChange={(e) => setWithdrawAmount(e.target.value)}
+                      min="1"
+                      step="1"
+                      className="w-full pl-7 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-slate-100 focus:outline-none focus:border-cyan-500"
+                      placeholder="1000"
+                    />
+                  </div>
                 </div>
                 <div className="flex space-x-2">
                   {[500, 1000, 5000].map((amt) => (
@@ -352,26 +385,74 @@ export default function SettingsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-slate-400">Default Allocation USD per Trade ($ USDT)</label>
-                <input
-                  type="number"
-                  value={defaultAllocation}
-                  onChange={(e) => setDefaultAllocation(e.target.value)}
-                  placeholder="1000"
-                  className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-slate-100 focus:outline-none focus:border-cyan-500"
-                />
+                <div className="relative flex items-center">
+                  <span className="absolute left-3 text-slate-500 font-bold text-xs">$</span>
+                  <input
+                    type="number"
+                    value={defaultAllocation}
+                    onChange={(e) => setDefaultAllocation(e.target.value)}
+                    placeholder="1000"
+                    className="w-full pl-7 pr-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-slate-100 focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
               </div>
               <div className="space-y-2">
-                <label className="text-xs font-semibold text-slate-400">Default Leverage Multiplier (1x - 25x)</label>
+                <label className="text-xs font-semibold text-slate-400">Default Leverage Multiplier (1x - 100x)</label>
                 <input
                   type="number"
                   value={defaultLeverage}
                   onChange={(e) => setDefaultLeverage(e.target.value)}
                   min={1}
-                  max={25}
+                  max={100}
                   placeholder="1"
                   className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-mono text-slate-100 focus:outline-none focus:border-cyan-500"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Global Timezones & Regional Localization Card */}
+          <div className="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-5 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                  <Globe className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-md font-semibold text-slate-200">Global Timezone &amp; Regional Localization</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Select your local timezone for chart timestamps, trade execution logs, and reporting</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveTimezone}
+                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:brightness-110 text-white font-bold rounded-xl text-xs uppercase tracking-wider transition shadow-lg shadow-cyan-500/20 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Check className="w-4 h-4" />
+                <span>Save Timezone</span>
+              </button>
+            </div>
+
+            {timezoneFeedback && (
+              <div className="p-3 rounded-xl text-xs font-semibold flex items-center gap-2 border bg-emerald-500/10 border-emerald-500/20 text-emerald-400">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{timezoneFeedback.message}</span>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-slate-400">System Timezone</label>
+              <select
+                value={selectedTimezone}
+                onChange={(e) => setSelectedTimezone(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm font-semibold text-slate-100 focus:outline-none focus:border-cyan-500"
+              >
+                {TIMEZONES.map((tz) => (
+                  <option key={tz.value} value={tz.value} className="bg-slate-900 text-slate-100">
+                    {tz.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -382,5 +463,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-
-
