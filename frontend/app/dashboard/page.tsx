@@ -11,8 +11,12 @@ import { fetchPortfolio, fetchNewsSentiment, fetchScannerSummary, toggleBot, set
 import { Bot, LineChart, ShieldAlert, Scan, Crosshair, TrendingUp, Cpu, Award } from "lucide-react";
 import { BottomTabsPanel } from "@/components/terminal/BottomTabsPanel";
 
+import { useAuth } from "@/context/AuthContext";
+import { SubscriptionLimitsCard } from "@/components/dashboard/SubscriptionLimitsCard";
+
 export default function InstitutionalDashboardPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { user } = useAuth();
   const stream = useTradingStream();
 
   const portfolioQuery = useQuery({ queryKey: ["portfolio"], queryFn: fetchPortfolio, refetchInterval: 5000 });
@@ -42,49 +46,63 @@ export default function InstitutionalDashboardPage() {
             </div>
           </div>
 
-          {/* Quick Metrics Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>Active Equity</span>
-                <TrendingUp className="w-4 h-4 text-emerald-400" />
-              </div>
-              <div className="text-2xl font-extrabold text-white mt-2">
-                ${currentPortfolio?.total_portfolio_value ? currentPortfolio.total_portfolio_value.toLocaleString() : "148,250.00"}
-              </div>
+          {/* Metrics & Trading Limits Panel Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2 space-y-4">
+              {/* Quick Metrics Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Active Equity</span>
+                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-white mt-2">
+                    ${currentPortfolio?.total_portfolio_value ? currentPortfolio.total_portfolio_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "10,000.00"}
+                  </div>
+                  <div className="text-xs text-emerald-400 mt-1">↑ +24.8% (30D PnL)</div>
+                </div>
 
-              <div className="text-xs text-emerald-400 mt-1">↑ +24.8% (30D PnL)</div>
+                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Sharpe Ratio</span>
+                    <Award className="w-4 h-4 text-indigo-400" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-indigo-400 mt-2">2.84</div>
+                  <div className="text-xs text-slate-500 mt-1">Max Drawdown: 4.2%</div>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>SOR Latency</span>
+                    <Cpu className="w-4 h-4 text-purple-400" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-purple-400 mt-2">
+                    {stream.latency ? `${stream.latency} ms` : "15 ms"}
+                  </div>
+                  <div className="text-xs text-emerald-400 mt-1">Binance / Bybit / OKX</div>
+                </div>
+
+                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span>Risk Status</span>
+                    <ShieldAlert className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <div className="text-2xl font-extrabold text-emerald-400 mt-2">NORMAL</div>
+                  <div className="text-xs text-slate-400 mt-1">VaR: 3.1% | Exposure: 42% BTC</div>
+                </div>
+              </div>
             </div>
 
-            <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>Sharpe Ratio</span>
-                <Award className="w-4 h-4 text-indigo-400" />
-              </div>
-              <div className="text-2xl font-extrabold text-indigo-400 mt-2">2.84</div>
-              <div className="text-xs text-slate-500 mt-1">Max Drawdown: 4.2%</div>
-            </div>
-
-            <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>SOR Latency</span>
-                <Cpu className="w-4 h-4 text-purple-400" />
-              </div>
-              <div className="text-2xl font-extrabold text-purple-400 mt-2">
-                {stream.latency ? `${stream.latency} ms` : "18.5 ms"}
-              </div>
-              <div className="text-xs text-emerald-400 mt-1">Binance / Bybit / OKX</div>
-            </div>
-
-            <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>Risk Status</span>
-                <ShieldAlert className="w-4 h-4 text-amber-400" />
-              </div>
-              <div className="text-2xl font-extrabold text-emerald-400 mt-2">NORMAL</div>
-              <div className="text-xs text-slate-400 mt-1">VaR: 3.1% | Exposure: 42% BTC</div>
+            {/* Subscription & Trading Limits Control Card */}
+            <div className="lg:col-span-1">
+              <SubscriptionLimitsCard
+                userPlan={user?.plan || user?.plan_tier || "INSTITUTIONAL"}
+                activePositionsCount={currentPortfolio?.active_positions?.length || 0}
+                onPreferencesUpdated={() => portfolioQuery.refetch()}
+              />
             </div>
           </div>
+
 
           {/* Active Open Positions & Execution Terminal Widget */}
           <div className="space-y-2">

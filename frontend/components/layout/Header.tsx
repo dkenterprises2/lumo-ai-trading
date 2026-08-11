@@ -155,19 +155,41 @@ export function Header({
             <span>{isBotActive ? "Auto-Bot: ACTIVE" : "Auto-Bot: OFF"}</span>
           </button>
 
-          {/* User Profile Avatar */}
+          {/* User Profile Avatar & Plan Badge */}
           {user ? (
-            <Link
-              href="/profile"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500/50 transition-all duration-200"
-            >
-              <img
-                src={user.avatar || "https://api.dicebear.com/7.x/avataaars/svg?seed=LumoTrader"}
-                alt={user.name}
-                className="w-6 h-6 rounded-full border border-cyan-400/40 bg-slate-900"
-              />
-              <span className="text-xs font-medium text-slate-200 max-w-[100px] truncate">{user.name}</span>
-            </Link>
+            <div className="flex items-center gap-2">
+              <div
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-extrabold tracking-wider uppercase ${
+                  (user.plan || user.plan_tier || 'FREE').toUpperCase().includes('INSTITUTIONAL') || (user.plan || user.plan_tier || 'FREE').toUpperCase().includes('ENTERPRISE')
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-sm shadow-emerald-500/10'
+                    : (user.plan || user.plan_tier || 'FREE').toUpperCase().includes('PRO')
+                    ? 'bg-purple-500/10 text-purple-400 border-purple-500/30 shadow-sm shadow-purple-500/10'
+                    : (user.plan || user.plan_tier || 'FREE').toUpperCase().includes('BASIC')
+                    ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}
+              >
+                {(user.plan || user.plan_tier || 'FREE').toUpperCase().includes('INSTITUTIONAL') || (user.plan || user.plan_tier || 'FREE').toUpperCase().includes('ENTERPRISE')
+                  ? '👑 INSTITUTIONAL'
+                  : (user.plan || user.plan_tier || 'FREE').toUpperCase().includes('PRO')
+                  ? '⚡ PRO'
+                  : (user.plan || user.plan_tier || 'FREE').toUpperCase().includes('BASIC')
+                  ? '🔹 BASIC'
+                  : '🆓 FREE'}
+              </div>
+
+              <Link
+                href="/profile"
+                className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500/50 transition-all duration-200"
+              >
+                <img
+                  src={user.avatar || "https://api.dicebear.com/7.x/avataaars/svg?seed=LumoTrader"}
+                  alt={user.name}
+                  className="w-6 h-6 rounded-full border border-cyan-400/40 bg-slate-900"
+                />
+                <span className="text-xs font-medium text-slate-200 max-w-[100px] truncate">{user.name}</span>
+              </Link>
+            </div>
           ) : (
             <Link
               href="/login"
@@ -176,6 +198,7 @@ export function Header({
               Sign In
             </Link>
           )}
+
 
           {/* Settings Quick Icon */}
           <Link href="/settings" className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-100 hover:border-slate-700 transition">
