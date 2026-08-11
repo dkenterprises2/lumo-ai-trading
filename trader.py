@@ -75,6 +75,22 @@ class PaperTrader:
         """Set main application event loop for thread-safe cross-thread coroutine scheduling."""
         self.main_loop = loop
 
+    def apply_plan_limits(self, plan_name: str):
+        """Dynamically apply plan tier limits to max open positions and institutional risk manager."""
+        p = (plan_name or "").upper()
+        if "ENTERPRISE" in p or "INSTITUTIONAL" in p or "PRO" in p:
+            limit = 10
+        elif "BASIC" in p:
+            limit = 5
+        else:
+            limit = 3
+
+        self.max_open_positions = limit
+        if hasattr(self, "risk_manager") and hasattr(self.risk_manager, "config"):
+            self.risk_manager.config.max_concurrent_trades = limit
+        logger.info(f"[PLAN_LIMITS] Applied plan limit={limit} (Plan={plan_name}) for UserID={self.user_id}")
+
+
 
 
 
@@ -175,9 +191,34 @@ class PaperTrader:
                 description="Initial Capital Deposit"
             )
 
-        # 6. State Verification Step
+        # 6. Load Plan Limits & Configure Risk Manager
+        user_plan = "ENTERPRISE"
+        try:
+            from backend.database.session import AsyncSessionLocal
+            from sqlalchemy import text
+            async with AsyncSessionLocal() as session:
+                if self.user_id is not None:
+                    u_res = await session.execute(text("SELECT email, role FROM users WHERE id = :uid"), {"uid": self.user_id})
+                    u_row = u_res.fetchone()
+                    if u_row:
+                        u_email = u_row[0]
+                        u_role = (u_row[1] or "").upper()
+                        if u_email in ["jiodkd@gmail.com", "kumardharma7889@gmail.com"] or u_role in ["SUPER_ADMIN", "ENTERPRISE", "PRO", "INSTITUTIONAL"]:
+                            user_plan = "ENTERPRISE"
+                        else:
+                            sub_res = await session.execute(text("SELECT plan_id FROM subscriptions WHERE org_id = :org_id"), {"org_id": f"ORG-{self.user_id}"})
+                            sub_row = sub_res.fetchone()
+                            if sub_row:
+                                user_plan = sub_row[0]
+        except Exception as ex:
+            logger.warning(f"[PLAN_RESTORE] Could not query database for user plan: {ex}")
+
+        self.apply_plan_limits(user_plan)
+
+        # 7. State Verification Step
         logger.info(f"[STATE_TRANSITION] Changing to VERIFYING_STATE...")
         self.state = TraderState.VERIFYING_STATE
+
 
         # Verify wallet balance against ledger reconstruction
         reconstructed = sum(tx["amount"] for tx in self.ledger)

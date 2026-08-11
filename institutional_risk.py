@@ -10,7 +10,8 @@ class InstitutionalRiskConfig:
     max_daily_loss_pct: float = 5.0             # Max allowed daily loss % of initial balance (e.g. 5.0%)
     max_daily_loss_usd: float = 500.0           # Max allowed daily loss USD
     max_drawdown_pct: float = 10.0              # Max allowed peak-to-trough drawdown % (e.g. 10.0%)
-    max_concurrent_trades: int = 3             # Max allowed concurrent open positions (e.g. 3)
+    max_concurrent_trades: int = 10            # Max allowed concurrent open positions (e.g. 10)
+
     max_exposure_ratio: float = 2.5             # Max total notional exposure / portfolio value (e.g. 2.5x)
     max_volatility_atr_pct: float = 5.0         # Max ATR % of price allowed for new entry (e.g. 5.0%)
     correlation_filter_enabled: bool = True     # Block opening >2 correlated assets in same direction
