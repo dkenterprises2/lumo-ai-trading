@@ -51,44 +51,55 @@ export default function InstitutionalDashboardPage() {
             <div className="lg:col-span-2 space-y-4">
               {/* Quick Metrics Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Active Equity</span>
-                    <TrendingUp className="w-4 h-4 text-emerald-400" />
+                <div className="bg-slate-900/90 border border-slate-800/90 p-5 rounded-3xl shadow-xl backdrop-blur-xl hover:border-slate-700 transition-all group">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-400">
+                    <span className="uppercase tracking-wider">Active Equity</span>
+                    <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      <TrendingUp className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="text-2xl font-extrabold text-white mt-2">
+                  <div className="text-2xl font-extrabold text-white mt-3 font-mono tracking-tight">
                     ${currentPortfolio?.total_portfolio_value ? currentPortfolio.total_portfolio_value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "10,000.00"}
                   </div>
-                  <div className="text-xs text-emerald-400 mt-1">↑ +24.8% (30D PnL)</div>
+                  <div className="text-xs font-bold text-emerald-400 mt-1 flex items-center gap-1">
+                    <span>↑ +24.8%</span>
+                    <span className="text-slate-500 font-normal">(30D PnL)</span>
+                  </div>
                 </div>
 
-                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Sharpe Ratio</span>
-                    <Award className="w-4 h-4 text-indigo-400" />
+                <div className="bg-slate-900/90 border border-slate-800/90 p-5 rounded-3xl shadow-xl backdrop-blur-xl hover:border-slate-700 transition-all group">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-400">
+                    <span className="uppercase tracking-wider">Sharpe Ratio</span>
+                    <div className="p-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                      <Award className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="text-2xl font-extrabold text-indigo-400 mt-2">2.84</div>
-                  <div className="text-xs text-slate-500 mt-1">Max Drawdown: 4.2%</div>
+                  <div className="text-2xl font-extrabold text-indigo-400 mt-3 font-mono tracking-tight">2.84</div>
+                  <div className="text-xs font-medium text-slate-400 mt-1">Max Drawdown: <span className="text-slate-200 font-bold">4.2%</span></div>
                 </div>
 
-                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>SOR Latency</span>
-                    <Cpu className="w-4 h-4 text-purple-400" />
+                <div className="bg-slate-900/90 border border-slate-800/90 p-5 rounded-3xl shadow-xl backdrop-blur-xl hover:border-slate-700 transition-all group">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-400">
+                    <span className="uppercase tracking-wider">SOR Latency</span>
+                    <div className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                      <Cpu className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="text-2xl font-extrabold text-purple-400 mt-2">
+                  <div className="text-2xl font-extrabold text-purple-400 mt-3 font-mono tracking-tight">
                     {stream.latency ? `${stream.latency} ms` : "15 ms"}
                   </div>
-                  <div className="text-xs text-emerald-400 mt-1">Binance / Bybit / OKX</div>
+                  <div className="text-xs font-semibold text-emerald-400 mt-1">Binance / Bybit / OKX Router</div>
                 </div>
 
-                <div className="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span>Risk Status</span>
-                    <ShieldAlert className="w-4 h-4 text-amber-400" />
+                <div className="bg-slate-900/90 border border-slate-800/90 p-5 rounded-3xl shadow-xl backdrop-blur-xl hover:border-slate-700 transition-all group">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-400">
+                    <span className="uppercase tracking-wider">Risk Status</span>
+                    <div className="p-2 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      <ShieldAlert className="w-4 h-4" />
+                    </div>
                   </div>
-                  <div className="text-2xl font-extrabold text-emerald-400 mt-2">NORMAL</div>
-                  <div className="text-xs text-slate-400 mt-1">VaR: 3.1% | Exposure: 42% BTC</div>
+                  <div className="text-2xl font-extrabold text-emerald-400 mt-3 font-mono tracking-tight">NORMAL</div>
+                  <div className="text-xs font-medium text-slate-400 mt-1">VaR: <span className="text-slate-200 font-bold">3.1%</span> | Exposure: <span className="text-cyan-400 font-bold">42% BTC</span></div>
                 </div>
               </div>
             </div>
