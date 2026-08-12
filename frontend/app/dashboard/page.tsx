@@ -13,6 +13,7 @@ import { BottomTabsPanel } from "@/components/terminal/BottomTabsPanel";
 
 import { useAuth } from "@/context/AuthContext";
 import { SubscriptionLimitsCard } from "@/components/dashboard/SubscriptionLimitsCard";
+import { ManualTradingCard } from "@/components/dashboard/ManualTradingCard";
 
 export default function InstitutionalDashboardPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -48,7 +49,7 @@ export default function InstitutionalDashboardPage() {
 
           {/* Metrics & Trading Limits Panel Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2 space-y-4">
+            <div className="lg:col-span-2 flex flex-col justify-between space-y-4">
               {/* Quick Metrics Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-slate-900/90 border border-slate-800/90 p-5 rounded-3xl shadow-xl backdrop-blur-xl hover:border-slate-700 transition-all group">
@@ -102,7 +103,15 @@ export default function InstitutionalDashboardPage() {
                   <div className="text-xs font-medium text-slate-400 mt-1">VaR: <span className="text-slate-200 font-bold">3.1%</span> | Exposure: <span className="text-cyan-400 font-bold">42% BTC</span></div>
                 </div>
               </div>
+
+              {/* Manual Trading Quick Order Terminal */}
+              <ManualTradingCard
+                currentPrices={stream.livePrices}
+                onOrderExecuted={() => portfolioQuery.refetch()}
+              />
+
             </div>
+
 
             {/* Subscription & Trading Limits Control Card */}
             <div className="lg:col-span-1">
