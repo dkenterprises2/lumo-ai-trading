@@ -646,8 +646,10 @@ class PaperTrader:
             "trailing_stop_pct": trailing_stop_pct,
             "liquidation_price": liq_price,
             "entry_time": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "entry_time_ts": time.time(),
             "reason": reason
         }
+
         self.positions[symbol] = position
 
         # Immediately create open trade record with expanded audit fields
@@ -810,18 +812,35 @@ class PaperTrader:
             logger.debug(f"Outcome collector skipped: {ex}")
 
 
-        # Persist to Trade Journal
-        journal_entry = {
-            **trade_record,
-            "market_regime": pos.get("market_regime", "BULL_TREND"),
-            "score_breakdown": pos.get("score_breakdown", {}),
-            "explainable_reasons": pos.get("explainable_reasons", [reason]),
-            "holding_time_seconds": max(1.0, time.time() - float(pos.get("entry_time_ts", time.time() - 300))),
-            "execution_latency_ms": 1.2
-        }
-        self._run_serialized_db_task(lambda: self.repo.save_journal_entry(journal_entry, user_id=self.user_id))
+        # Persist to Trade Journal safely
+        try:
+            entry_ts = pos.get("entry_time_ts")
+            if entry_ts is None:
+                entry_str = pos.get("entry_time", "")
+                if entry_str:
+                    try:
+                        entry_ts = time.mktime(time.strptime(entry_str, "%Y-%m-%d %H:%M:%S"))
+                    except Exception:
+                        entry_ts = time.time() - 300.0
+                else:
+                    entry_ts = time.time() - 300.0
+
+            holding_secs = max(1.0, time.time() - float(entry_ts))
+
+            journal_entry = {
+                **trade_record,
+                "market_regime": pos.get("market_regime", "BULL_TREND"),
+                "score_breakdown": pos.get("score_breakdown", {}),
+                "explainable_reasons": pos.get("explainable_reasons", [reason]),
+                "holding_time_seconds": holding_secs,
+                "execution_latency_ms": 1.2
+            }
+            self._run_serialized_db_task(lambda: self.repo.save_journal_entry(journal_entry, user_id=self.user_id))
+        except Exception as jrn_err:
+            logger.warning(f"[JOURNAL_SAVE_WARNING] Could not save journal entry for position {pos.get('id')}: {jrn_err}")
 
         logger.info(f"Closed {side} {symbol} at ${price}. PnL: ${pnl_usd:.2f} ({pnl_pct:.2f}%)")
+
 
         return {"status": "success", "message": f"Closed {side} {symbol} at ${price}. PnL: ${pnl_usd:.2f}", "trade": trade_record}
 
