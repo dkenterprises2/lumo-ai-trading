@@ -20,22 +20,25 @@ export class ApiError extends Error {
 function getApiCandidateBases(): string[] {
   const candidates: string[] = [];
 
-  // 1. Relative path for Next.js port 3000 dev server & rewrites
-  candidates.push("");
-
+  // 1. Explicit API Base URL if configured
   if (API_BASE && !API_BASE.includes("example.com")) {
     candidates.push(API_BASE);
   }
-  
+
+  // 2. Direct FastAPI backend servers
+  candidates.push("http://127.0.0.1:8000");
+  candidates.push("http://localhost:8000");
+
   if (typeof window !== "undefined" && window.location?.hostname) {
     const host = window.location.hostname;
     const port = window.location.port ? `:${window.location.port}` : "";
-    candidates.push(`${window.location.protocol}//${host}${port}`);
-    candidates.push(`http://${host}:8000`);
+    if (port !== ":8000") {
+      candidates.push(`http://${host}:8000`);
+    }
   }
 
-  candidates.push("http://127.0.0.1:8000");
-  candidates.push("http://localhost:8000");
+  // 3. Relative path for Next.js rewrite proxies
+  candidates.push("");
 
   return Array.from(new Set(candidates));
 }
@@ -64,13 +67,17 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
       });
       if (res) {
         response = res;
-        break;
+        // Break immediately if backend responded with success or structured API response (not Next.js 404/500 proxy error)
+        if (res.ok || res.status === 400 || res.status === 401 || res.status === 422) {
+          break;
+        }
       }
 
     } catch (err) {
       // Continue to next candidate host
     }
   }
+
 
   if (!response) {
     throw new ApiError("Unable to connect to Lumo Trading backend server. Please verify python main.py backend process is running.", 0);
