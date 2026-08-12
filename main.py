@@ -618,7 +618,9 @@ async def manage_position(req: PositionActionRequest, current_user: UserModel = 
         raise HTTPException(status_code=400, detail="Invalid action")
 
     await user_trader.flush_persistence()
+    ws_manager.user_last_hashes.clear()
     return res
+
 
 
 @app.post("/api/bot/strategy")

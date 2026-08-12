@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { TradeRecord } from "@/types/trading";
-import { History, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { History, ArrowUpDown, ArrowUp, ArrowDown, Download, FileSpreadsheet } from "lucide-react";
 
 interface TradeHistoryTableProps {
   trades: TradeRecord[];
@@ -22,6 +22,55 @@ export function TradeHistoryTable({ trades }: TradeHistoryTableProps) {
       setSortField(field);
       setSortDirection("desc");
     }
+  };
+
+  const exportTrades = (format: "csv" | "excel") => {
+    if (!trades || trades.length === 0) return;
+
+    const headers = [
+      "Trade ID",
+      "Symbol",
+      "Side",
+      "Entry Price ($)",
+      "Exit Price ($)",
+      "Amount",
+      "Margin ($)",
+      "PnL ($)",
+      "PnL (%)",
+      "Status",
+      "Close Reason",
+      "Time"
+    ];
+
+    const rows = trades.map(t => [
+      `"${t.id}"`,
+      `"${t.symbol}"`,
+      `"${t.side}"`,
+      t.entry_price ? t.entry_price.toFixed(4) : "0",
+      t.exit_price ? t.exit_price.toFixed(4) : "0",
+      t.amount ? t.amount.toFixed(4) : "0",
+      t.margin_usd ? t.margin_usd.toFixed(2) : "0",
+      t.pnl_usd ? t.pnl_usd.toFixed(2) : "0",
+      t.pnl_pct ? `${t.pnl_pct.toFixed(2)}%` : "0%",
+      `"${t.status || 'CLOSED'}"`,
+      `"${(t.close_reason || t.reason || '').replace(/"/g, '""')}"`,
+      `"${t.exit_time || t.entry_time || ''}"`
+    ]);
+
+    const delimiter = format === "csv" ? "," : "\t";
+    const mimeType = format === "csv" ? "text/csv;charset=utf-8;" : "application/vnd.ms-excel;charset=utf-8;";
+    const filename = `lumo_trade_history_${new Date().toISOString().slice(0, 10)}.${format === "csv" ? "csv" : "xls"}`;
+
+    const content = "\uFEFF" + [headers.join(delimiter), ...rows.map(r => r.join(delimiter))].join("\n");
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const sortedTrades = useMemo(() => {
@@ -74,10 +123,33 @@ export function TradeHistoryTable({ trades }: TradeHistoryTableProps) {
           </div>
         </div>
 
-        <span className="text-xs font-semibold px-2.5 py-1 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-          {trades ? trades.length : 0} Executed
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => exportTrades("csv")}
+            disabled={!trades || trades.length === 0}
+            className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-40"
+            title="Download Trade History as CSV"
+          >
+            <Download className="w-3.5 h-3.5 text-cyan-400" />
+            <span>CSV</span>
+          </button>
+
+          <button
+            onClick={() => exportTrades("excel")}
+            disabled={!trades || trades.length === 0}
+            className="px-2.5 py-1 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-40"
+            title="Download Trade History as Excel"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Excel</span>
+          </button>
+
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
+            {trades ? trades.length : 0} Executed
+          </span>
+        </div>
       </div>
+
 
       <div className="overflow-x-auto max-h-80 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
         <table className="w-full text-left text-xs">

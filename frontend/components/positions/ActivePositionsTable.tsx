@@ -6,8 +6,9 @@ import { Crosshair, XCircle, RefreshCw, Percent, ArrowUpDown, ArrowUp, ArrowDown
 
 interface ActivePositionsTableProps {
   positions: Position[];
-  onAction: (symbol: string, action: "CLOSE" | "PARTIAL_CLOSE" | "REVERSE") => void;
+  onAction: (symbol: string, action: "CLOSE" | "PARTIAL_CLOSE" | "REVERSE") => Promise<any> | void;
 }
+
 
 type SortField = "symbol" | "side" | "leverage" | "entry_price" | "margin_usd" | "unrealized_pnl_usd";
 type SortDirection = "asc" | "desc";
@@ -15,6 +16,7 @@ type SortDirection = "asc" | "desc";
 export function ActivePositionsTable({ positions, onAction }: ActivePositionsTableProps) {
   const [sortField, setSortField] = useState<SortField>("margin_usd");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [loadingActionKey, setLoadingActionKey] = useState<string | null>(null);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -22,6 +24,18 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
     } else {
       setSortField(field);
       setSortDirection("desc");
+    }
+  };
+
+  const handleActionClick = async (symbol: string, action: "CLOSE" | "PARTIAL_CLOSE" | "REVERSE") => {
+    const actionKey = `${symbol}-${action}`;
+    setLoadingActionKey(actionKey);
+    try {
+      await onAction(symbol, action);
+    } catch (e) {
+      console.error(`Error executing ${action} on ${symbol}`, e);
+    } finally {
+      setLoadingActionKey(null);
     }
   };
 
@@ -130,6 +144,10 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
                 const formattedMoney = isProfit ? `+$${pnlVal.toFixed(2)}` : `-$${Math.abs(pnlVal).toFixed(2)}`;
                 const formattedPct = isProfit ? `+${pctVal.toFixed(2)}%` : `-${Math.abs(pctVal).toFixed(2)}%`;
 
+                const isClosing = loadingActionKey === `${pos.symbol}-CLOSE`;
+                const isPartialing = loadingActionKey === `${pos.symbol}-PARTIAL_CLOSE`;
+                const isReversing = loadingActionKey === `${pos.symbol}-REVERSE`;
+
                 return (
                   <tr key={pos.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="py-3 px-3 font-bold text-slate-100">{pos.symbol}</td>
@@ -157,25 +175,28 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
                     <td className="py-3 px-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
                         <button
-                          onClick={() => onAction(pos.symbol, "CLOSE")}
-                          className="px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 text-[11px] font-semibold flex items-center gap-1 transition"
+                          onClick={() => handleActionClick(pos.symbol, "CLOSE")}
+                          disabled={!!loadingActionKey}
+                          className="px-2.5 py-1 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 text-[11px] font-semibold flex items-center gap-1 transition disabled:opacity-50"
                         >
-                          <XCircle className="h-3 w-3" />
-                          <span>Close</span>
+                          {isClosing ? <RefreshCw className="h-3 w-3 animate-spin" /> : <XCircle className="h-3 w-3" />}
+                          <span>{isClosing ? "Closing..." : "Close"}</span>
                         </button>
                         <button
-                          onClick={() => onAction(pos.symbol, "PARTIAL_CLOSE")}
-                          className="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 text-[11px] font-semibold flex items-center gap-1 transition"
+                          onClick={() => handleActionClick(pos.symbol, "PARTIAL_CLOSE")}
+                          disabled={!!loadingActionKey}
+                          className="px-2 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 text-[11px] font-semibold flex items-center gap-1 transition disabled:opacity-50"
                         >
-                          <Percent className="h-3 w-3" />
-                          <span>50%</span>
+                          {isPartialing ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Percent className="h-3 w-3" />}
+                          <span>{isPartialing ? "..." : "50%"}</span>
                         </button>
                         <button
-                          onClick={() => onAction(pos.symbol, "REVERSE")}
-                          className="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 text-[11px] font-semibold flex items-center gap-1 transition"
+                          onClick={() => handleActionClick(pos.symbol, "REVERSE")}
+                          disabled={!!loadingActionKey}
+                          className="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500/20 text-[11px] font-semibold flex items-center gap-1 transition disabled:opacity-50"
                         >
-                          <RefreshCw className="h-3 w-3" />
-                          <span>Reverse</span>
+                          <RefreshCw className={`h-3 w-3 ${isReversing ? "animate-spin" : ""}`} />
+                          <span>{isReversing ? "..." : "Reverse"}</span>
                         </button>
                       </div>
                     </td>
@@ -189,4 +210,5 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
     </div>
   );
 }
+
 
