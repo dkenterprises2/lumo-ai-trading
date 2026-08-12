@@ -596,30 +596,47 @@ async def execute_manual_order(req: OrderRequest, current_user: UserModel = Depe
 @app.post("/api/trade/position-action")
 async def manage_position(req: PositionActionRequest, current_user: UserModel = Depends(get_current_user)):
     """Position Actions: Close, Partial Close, Reverse, Edit SL/TP."""
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    price = market_engine.fetch_current_price(req.symbol)
-    action = req.action.upper()
+    try:
+        user_trader = await trader_manager.get_trader_for_user(current_user.id)
+        price = market_engine.fetch_current_price(req.symbol)
+        if not price or price <= 0:
+            if req.symbol in user_trader.positions:
+                price = user_trader.positions[req.symbol].get('entry_price', 1.0)
+            else:
+                price = 1.0
 
-    if action == "CLOSE":
-        res = user_trader.close_position(req.symbol, price, reason="Manual Position Close")
-    elif action == "PARTIAL_CLOSE":
-        res = user_trader.close_position(req.symbol, price, reason="Partial Take Profit", ratio=req.ratio or 0.5)
-    elif action == "REVERSE":
-        res = user_trader.reverse_position(req.symbol, price)
-    elif action == "EDIT_SL_TP":
-        if req.symbol in user_trader.positions:
-            pos = user_trader.positions[req.symbol]
-            if req.new_stop_loss: pos['stop_loss_price'] = req.new_stop_loss
-            if req.new_take_profit: pos['take_profit_price'] = req.new_take_profit
-            res = {"status": "success", "message": f"Updated SL/TP targets for {req.symbol}"}
+        action = req.action.upper()
+
+        if action == "CLOSE":
+            res = user_trader.close_position(req.symbol, price, reason="Manual Position Close")
+        elif action == "PARTIAL_CLOSE":
+            res = user_trader.close_position(req.symbol, price, reason="Partial Take Profit", ratio=req.ratio or 0.5)
+        elif action == "REVERSE":
+            res = user_trader.reverse_position(req.symbol, price)
+        elif action == "EDIT_SL_TP":
+            if req.symbol in user_trader.positions:
+                pos = user_trader.positions[req.symbol]
+                if req.new_stop_loss: pos['stop_loss_price'] = req.new_stop_loss
+                if req.new_take_profit: pos['take_profit_price'] = req.new_take_profit
+                res = {"status": "success", "message": f"Updated SL/TP targets for {req.symbol}"}
+            else:
+                res = {"status": "error", "message": "Position not found"}
         else:
-            res = {"status": "error", "message": "Position not found"}
-    else:
-        raise HTTPException(status_code=400, detail="Invalid action")
+            raise HTTPException(status_code=400, detail="Invalid action")
 
-    await user_trader.flush_persistence()
-    ws_manager.user_last_hashes.clear()
-    return res
+        await user_trader.flush_persistence()
+        ws_manager.user_last_hashes.clear()
+
+        if res.get("status") == "error":
+            raise HTTPException(status_code=400, detail=res.get("message", "Failed to process position action"))
+
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[MANAGE_POSITION_ERROR] Symbol={req.symbol} Action={req.action}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Position action failed: {str(e)}")
+
 
 
 

@@ -720,9 +720,13 @@ class PaperTrader:
             return {"status": "error", "message": f"No active position for {symbol}"}
 
         pos = self.positions[symbol]
+        if not price or price <= 0:
+            price = pos.get('current_price', pos.get('entry_price', 1.0))
+
         side = pos['side']
         amount_to_close = pos['amount'] * ratio
         margin_to_release = pos['margin_usd'] * ratio
+
 
         if side == "LONG":
             pnl_usd = (price - pos['entry_price']) * amount_to_close
