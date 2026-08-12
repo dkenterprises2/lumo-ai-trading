@@ -62,10 +62,11 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
         credentials: "include",
         cache: "no-store"
       });
-      if (res && (res.ok || res.status < 500)) {
+      if (res) {
         response = res;
         break;
       }
+
     } catch (err) {
       // Continue to next candidate host
     }

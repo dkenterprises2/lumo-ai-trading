@@ -317,7 +317,12 @@ class PaperTrader:
 
 
 
+    async def flush_persistence(self):
+        """Await saving portfolio state and flushing pending background tasks."""
+        await self.save_portfolio_async()
+
     async def save_portfolio_async(self):
+
         """Awaited serialized save of portfolio state to DB."""
         await self.repo.save_portfolio_state(
             usdt_balance=self.usdt_balance,
