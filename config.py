@@ -41,22 +41,13 @@ class Settings(BaseSettings):
     REDIS_URL: str = Field(default="redis://localhost:6379/0")
     REDIS_CACHE_TTL_SECONDS: int = 300
 
-    # Supported Crypto Assets (Multi-Symbol Scanner)
+    # Supported Crypto Assets (Multi-Symbol Scanner - 50 Top Crypto Pairs)
     SUPPORTED_SYMBOLS: List[str] = [
-        "BTC/USDT",
-        "ETH/USDT",
-        "SOL/USDT",
-        "BNB/USDT",
-        "XRP/USDT",
-        "ADA/USDT",
-        "DOGE/USDT",
-        "AVAX/USDT",
-        "LINK/USDT",
-        "ARB/USDT",
-        "SUI/USDT",
-        "INJ/USDT",
-        "TIA/USDT",
-        "FET/USDT"
+        "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "LINK/USDT",
+        "MATIC/USDT", "ATOM/USDT", "NEAR/USDT", "APT/USDT", "SUI/USDT", "OP/USDT", "ARB/USDT", "LTC/USDT", "ETC/USDT", "XLM/USDT",
+        "FIL/USDT", "INJ/USDT", "TIA/USDT", "UNI/USDT", "ICP/USDT", "FET/USDT", "RNDR/USDT", "PEPE/USDT", "SHIB/USDT", "FLOKI/USDT",
+        "AAVE/USDT", "MKR/USDT", "SNX/USDT", "CRV/USDT", "LDO/USDT", "GRT/USDT", "ALGO/USDT", "FTM/USDT", "SAND/USDT", "MANA/USDT",
+        "THETA/USDT", "AXS/USDT", "EGLD/USDT", "EOS/USDT", "FLOW/USDT", "KAVA/USDT", "MINA/USDT", "QNT/USDT", "RUNE/USDT", "WOO/USDT"
     ]
 
     # Timeframes Supported
@@ -80,7 +71,8 @@ class Settings(BaseSettings):
     DEFAULT_RISK_PER_TRADE_PCT: float = 2.0         # 2% portfolio risk per position
     MAX_DAILY_LOSS_PCT: float = 5.0                # 5% max portfolio daily loss
     MAX_DRAWDOWN_PCT: float = 15.0                 # 15% circuit breaker
-    MAX_OPEN_POSITIONS: int = 10
+    MAX_OPEN_POSITIONS: int = 50
+
     DEFAULT_STOP_LOSS_PCT: float = 2.5             # 2.5% stop loss
     DEFAULT_TAKE_PROFIT_PCT: float = 5.0            # 5.0% take profit
     DEFAULT_LEVERAGE: int = 1                       # Default 1x (Spot / Cross)

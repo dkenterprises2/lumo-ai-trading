@@ -1287,8 +1287,11 @@ def background_scanner_loop():
 
                         if res.get("status") == "success":
                             logger.info(f"[POSITION] UserID={user_tr.user_id} | Symbol={cand_sym} | OPENED SUCCESSFULLY: {res}")
-                            break # Stop loop immediately after 1 successful trade execution per scan cycle
+                            if len(user_tr.positions) >= user_tr.max_open_positions:
+                                logger.info(f"[POSITION_CAP_REACHED] UserID={user_tr.user_id} reached max open positions limit ({user_tr.max_open_positions}).")
+                                break
                         else:
+
                             logger.info(f"[POSITION] UserID={user_tr.user_id} | Symbol={cand_sym} | REJECTED BY RISK MANAGER: {res.get('message')}")
                             continue
                     except Exception as ex:
