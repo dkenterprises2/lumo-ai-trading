@@ -78,17 +78,26 @@ class PaperTrader:
     def apply_plan_limits(self, plan_name: str):
         """Dynamically apply plan tier limits to max open positions and institutional risk manager."""
         p = (plan_name or "").upper()
-        if "ENTERPRISE" in p or "INSTITUTIONAL" in p or "PRO" in p:
-            limit = 10
+        if "ENTERPRISE" in p or "INSTITUTIONAL" in p:
+            plan_max = 50
+        elif "PRO" in p:
+            plan_max = 30
         elif "BASIC" in p:
-            limit = 5
+            plan_max = 15
         else:
-            limit = 3
+            plan_max = 5
+
+        # Respect current user preference if set, up to plan ceiling
+        current = getattr(self, "max_open_positions", plan_max)
+        limit = min(max(current, 1), plan_max)
 
         self.max_open_positions = limit
         if hasattr(self, "risk_manager") and hasattr(self.risk_manager, "config"):
             self.risk_manager.config.max_concurrent_trades = limit
+            self.risk_manager.config.max_exposure_ratio = max(50.0, float(limit * 2.0))
+            self.risk_manager.config.correlation_group_limit = limit
         logger.info(f"[PLAN_LIMITS] Applied plan limit={limit} (Plan={plan_name}) for UserID={self.user_id}")
+
 
 
 

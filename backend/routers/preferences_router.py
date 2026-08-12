@@ -18,6 +18,14 @@ class TradingPreferencesUpdateSchema(BaseModel):
     default_allocation_usd: Optional[float] = Field(default=None, ge=10.0, le=100000.0)
     default_leverage: Optional[int] = Field(default=None, ge=1, le=100)
 
+DEFAULT_50_SYMBOLS = [
+    "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "LINK/USDT",
+    "MATIC/USDT", "ATOM/USDT", "NEAR/USDT", "APT/USDT", "SUI/USDT", "OP/USDT", "ARB/USDT", "LTC/USDT", "ETC/USDT", "XLM/USDT",
+    "FIL/USDT", "INJ/USDT", "TIA/USDT", "UNI/USDT", "ICP/USDT", "FET/USDT", "RNDR/USDT", "PEPE/USDT", "SHIB/USDT", "FLOKI/USDT",
+    "AAVE/USDT", "MKR/USDT", "SNX/USDT", "CRV/USDT", "LDO/USDT", "GRT/USDT", "ALGO/USDT", "FTM/USDT", "SAND/USDT", "MANA/USDT",
+    "THETA/USDT", "AXS/USDT", "EGLD/USDT", "EOS/USDT", "FLOW/USDT", "KAVA/USDT", "MINA/USDT", "QNT/USDT", "RUNE/USDT", "WOO/USDT"
+]
+
 @router.get("/trading")
 async def get_trading_preferences(current_user: UserModel = Depends(get_current_user)):
     """Fetch trading preferences for the current logged in user."""
@@ -27,7 +35,7 @@ async def get_trading_preferences(current_user: UserModel = Depends(get_current_
     max_cap_pct = getattr(trader_inst, "max_capital_per_trade_pct", 10.0)
     daily_loss_pct = getattr(trader_inst.risk_manager.config, "max_daily_loss_pct", 5.0)
     cooldown_mins = getattr(trader_inst, "symbol_cooldown_minutes", 10)
-    allowed_syms = getattr(trader_inst, "allowed_symbols", ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "AVAX/USDT", "DOGE/USDT", "XRP/USDT", "ADA/USDT", "LINK/USDT", "DOT/USDT"])
+    allowed_syms = getattr(trader_inst, "allowed_symbols", DEFAULT_50_SYMBOLS)
     alloc_usd = getattr(trader_inst, "default_allocation_usd", 1000.0)
     leverage = getattr(trader_inst, "default_leverage", 1)
     
@@ -62,6 +70,8 @@ async def update_trading_preferences(
     if body.max_concurrent_trades is not None:
         trader_inst.max_open_positions = body.max_concurrent_trades
         trader_inst.risk_manager.config.max_concurrent_trades = body.max_concurrent_trades
+        trader_inst.risk_manager.config.max_exposure_ratio = max(50.0, float(body.max_concurrent_trades * 2.0))
+        trader_inst.risk_manager.config.correlation_group_limit = body.max_concurrent_trades
 
     if body.max_capital_per_trade_pct is not None:
         trader_inst.max_capital_per_trade_pct = body.max_capital_per_trade_pct
@@ -88,7 +98,7 @@ async def update_trading_preferences(
     max_cap_pct = getattr(trader_inst, "max_capital_per_trade_pct", 10.0)
     daily_loss_pct = trader_inst.risk_manager.config.max_daily_loss_pct
     cooldown_mins = getattr(trader_inst, "symbol_cooldown_minutes", 10)
-    allowed_syms = getattr(trader_inst, "allowed_symbols", ["BTC/USDT", "ETH/USDT", "BNB/USDT", "SOL/USDT", "AVAX/USDT", "DOGE/USDT", "XRP/USDT", "ADA/USDT", "LINK/USDT", "DOT/USDT"])
+    allowed_syms = getattr(trader_inst, "allowed_symbols", DEFAULT_50_SYMBOLS)
     alloc_usd = getattr(trader_inst, "default_allocation_usd", 1000.0)
     leverage = getattr(trader_inst, "default_leverage", 1)
 

@@ -155,7 +155,8 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
   const badgeConfig = getPlanBadgeConfig(userPlan);
   const BadgeIcon = badgeConfig.icon;
 
-  const allowedTradesOptions = [1, 2, 3, 5, 10, 20, 50];
+  const allowedTradesOptions = [1, 2, 3, 5, 10, 15, 20, 25, 30, 40, 50];
+
   const cooldownOptions = [0, 5, 10, 15, 30, 60];
   const leverageOptions = [1, 2, 3, 5, 10, 20, 50, 100];
 
