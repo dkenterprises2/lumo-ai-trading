@@ -70,8 +70,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
 
 # Configure CORS Middleware at top of middleware stack
+VERCEL_FRONTEND_URL = os.getenv(
+    "VERCEL_FRONTEND_URL",
+    "https://lumo-ai.vercel.app"
+)
 
 cors_origins = [
+    VERCEL_FRONTEND_URL,
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:8000",
@@ -89,13 +94,22 @@ cors_origins = list(dict.fromkeys(cors_origins))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
-    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
+@app.get("/api/system/health")
+async def system_health():
+    return {
+        "status": "healthy",
+        "service": "lumo-backend",
+        "cors_frontend": VERCEL_FRONTEND_URL
+    }
+
 from fastapi import Request
+
 
 @app.middleware("http")
 async def log_incoming_requests(request: Request, call_next):

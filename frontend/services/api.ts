@@ -141,6 +141,11 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+export async function checkBackendHealth(): Promise<{ status: string; service?: string; cors_frontend?: string }> {
+  return requestJson<{ status: string; service?: string; cors_frontend?: string }>("/api/system/health");
+}
+
+
 
 export async function fetchPortfolio(): Promise<PortfolioState> {
   return requestJson<PortfolioState>("/api/portfolio");
