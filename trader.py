@@ -873,23 +873,47 @@ class PaperTrader:
                 continue
 
             side = pos['side']
+            entry_price = pos['entry_price']
+
+            # Dynamic Trailing Stop & Profit Lock
             if side == "LONG":
+                peak_price = pos.get('highest_price', entry_price)
+                if price > peak_price:
+                    pos['highest_price'] = price
+                    # Trail Stop Loss to lock in profits if price gained > 1.5%
+                    pnl_gain_pct = (price - entry_price) / entry_price * 100.0
+                    if pnl_gain_pct >= 1.5:
+                        trailed_sl = round(price * 0.985, 4)
+                        if trailed_sl > pos.get('stop_loss_price', 0):
+                            pos['stop_loss_price'] = trailed_sl
+
                 if price <= pos['stop_loss_price']:
-                    to_close.append((symbol, price, f"Stop-Loss Triggered (${pos['stop_loss_price']})"))
+                    to_close.append((symbol, price, f"Stop-Loss Triggered (${pos['stop_loss_price']:.4f})"))
                 elif price >= pos['take_profit_price']:
-                    to_close.append((symbol, price, f"Take-Profit Triggered (${pos['take_profit_price']})"))
+                    to_close.append((symbol, price, f"Take-Profit Triggered (${pos['take_profit_price']:.4f})"))
                 elif pos.get('liquidation_price') and price <= pos['liquidation_price']:
-                    to_close.append((symbol, price, f"Liquidation Triggered (${pos['liquidation_price']})"))
-            else:
+                    to_close.append((symbol, price, f"Liquidation Triggered (${pos['liquidation_price']:.4f})"))
+            else: # SHORT
+                trough_price = pos.get('lowest_price', entry_price)
+                if price < trough_price:
+                    pos['lowest_price'] = price
+                    # Trail Stop Loss to lock in profits if price dropped > 1.5%
+                    pnl_gain_pct = (entry_price - price) / entry_price * 100.0
+                    if pnl_gain_pct >= 1.5:
+                        trailed_sl = round(price * 1.015, 4)
+                        if pos.get('stop_loss_price') is None or trailed_sl < pos['stop_loss_price']:
+                            pos['stop_loss_price'] = trailed_sl
+
                 if price >= pos['stop_loss_price']:
-                    to_close.append((symbol, price, f"Stop-Loss Triggered (${pos['stop_loss_price']})"))
+                    to_close.append((symbol, price, f"Stop-Loss Triggered (${pos['stop_loss_price']:.4f})"))
                 elif price <= pos['take_profit_price']:
-                    to_close.append((symbol, price, f"Take-Profit Triggered (${pos['take_profit_price']})"))
+                    to_close.append((symbol, price, f"Take-Profit Triggered (${pos['take_profit_price']:.4f})"))
                 elif pos.get('liquidation_price') and price >= pos['liquidation_price']:
-                    to_close.append((symbol, price, f"Liquidation Triggered (${pos['liquidation_price']})"))
+                    to_close.append((symbol, price, f"Liquidation Triggered (${pos['liquidation_price']:.4f})"))
 
         for symbol, price, reason in to_close:
             self.close_position(symbol, price, reason=reason)
+
 
     async def reset_paper_account_async(self, default_balance: float = 10000.0) -> Dict[str, Any]:
         """Reset paper trading account balance to default $10,000 USDT and completely clear positions, orders, trade history, equity history, and ledger in memory and database."""
