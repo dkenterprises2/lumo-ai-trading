@@ -21,7 +21,8 @@ export const API_BASE_URL: string = (rawApiUrl && rawApiUrl.trim() !== "")
 
 export const WS_BASE_URL: string = (rawWsUrl && rawWsUrl.trim() !== "")
   ? rawWsUrl.trim()
-  : "ws://127.0.0.1:8000/ws/stream";
+  : (isProduction ? "wss://lumo-ai-trading-2.onrender.com/ws/stream" : "ws://127.0.0.1:8000/ws/stream");
+
 
 if (typeof window !== "undefined") {
   console.log(`[CONFIG]\nAPI_BASE_URL=${API_BASE_URL}\nWS_BASE_URL=${WS_BASE_URL}`);

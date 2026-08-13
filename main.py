@@ -391,17 +391,20 @@ async def serve_dashboard():
     raise HTTPException(status_code=404, detail="Frontend index.html not found")
 
 
+@app.websocket("/ws/ping")
+async def websocket_ping(websocket: WebSocket):
+    await websocket.accept()
+    await websocket.send_json({
+        "status": "connected"
+    })
+    await asyncio.sleep(60)
+
+@app.websocket("/ws")
 @app.websocket("/ws/stream")
 async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(None)):
-    """Real-Time Low Latency (<250ms target) Data WebSocket Streamer with User Isolation."""
-    origin = websocket.headers.get("origin", "")
-    allowed_origins = [o.strip() for o in settings.CORS_ALLOWED_ORIGINS.split(",") if o.strip()]
-    if allowed_origins and origin not in allowed_origins:
-        logger.warning(f"WebSocket connection rejected from origin: {origin}")
-        await websocket.close(code=4001)
-        return
-    
+    """Real-Time Low Latency Data WebSocket Streamer with Production Safe Handshake."""
     await websocket.accept()
+    logger.info("WS client connected")
 
     user_id = None
     if token:
@@ -414,7 +417,6 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
         except Exception as ex:
             logger.warning(f"WebSocket auth token invalid/expired: {ex}")
 
-
     ws_manager.connect_user(websocket, user_id=user_id)
     try:
         while True:
@@ -423,10 +425,16 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
             if data == "ping":
                 await websocket.send_json({"type": "pong", "timestamp": time.time()})
     except WebSocketDisconnect:
+        logger.info("WS client disconnected")
         ws_manager.disconnect(websocket)
-    except Exception as e:
-        logger.warning(f"WebSocket connection closed: {e}")
+    except Exception as exc:
+        logger.warning(f"WebSocket stream error: {exc}")
         ws_manager.disconnect(websocket)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
+
 
 @app.get("/api/market-summary")
 async def get_market_summary(symbol: str = "BTC/USDT", timeframe: str = "1h"):

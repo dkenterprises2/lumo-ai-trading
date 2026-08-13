@@ -52,6 +52,7 @@ export function useTradingStream(selectedSymbol: string = "BTC/USDT") {
       wsRef.current = ws;
 
       ws.onopen = () => {
+        console.log("WS CONNECTED");
         reconnectAttempts = 0;
         setConnectionState("live");
         lastPingRef.current = Date.now();
@@ -65,12 +66,13 @@ export function useTradingStream(selectedSymbol: string = "BTC/USDT") {
       };
 
       ws.onmessage = (event) => {
+        console.log("WS MESSAGE", event.data);
         try {
           const data: StreamPayload = JSON.parse(event.data);
           if (data.type === "pong" && lastPingRef.current !== null) {
             setLatency(Date.now() - lastPingRef.current);
             lastPingRef.current = null;
-          } else if (data.type === "TICKER_UPDATE") {
+          } else if (data.type === "TICKER_UPDATE" || data.type === "portfolio_update") {
             if (data.prices) setLivePrices(prev => ({ ...prev, ...data.prices }));
             if (data.portfolio) setPortfolio(data.portfolio);
             if (data.positions) setPositions(data.positions);
@@ -78,10 +80,16 @@ export function useTradingStream(selectedSymbol: string = "BTC/USDT") {
             if (data.bot_status) setBotStatus(data.bot_status);
             if (data.market_data) setMarketData(data.market_data);
           }
-        } catch { /* Ignore malformed messages and retain the last valid state. */ }
+        } catch { /* Ignore malformed messages and retain last valid state. */ }
       };
 
-      ws.onclose = () => {
+      ws.onerror = (e) => {
+        console.error("WS ERROR", e);
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
+      };
+
+      ws.onclose = (e) => {
+        console.warn("WS CLOSED", e.code, e.reason);
         if (pingInterval) {
           clearInterval(pingInterval);
           pingInterval = null;
@@ -97,9 +105,6 @@ export function useTradingStream(selectedSymbol: string = "BTC/USDT") {
         reconnectTimer = setTimeout(connect, reconnectDelay);
       };
 
-      ws.onerror = () => {
-        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
-      };
     };
 
     connect();
