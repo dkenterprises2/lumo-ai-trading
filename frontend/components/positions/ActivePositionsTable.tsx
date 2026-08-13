@@ -17,6 +17,7 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
   const [sortField, setSortField] = useState<SortField>("margin_usd");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [loadingActionKey, setLoadingActionKey] = useState<string | null>(null);
+  const [optimisticClosedSymbols, setOptimisticClosedSymbols] = useState<Set<string>>(new Set());
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -30,10 +31,22 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
   const handleActionClick = async (symbol: string, action: "CLOSE" | "PARTIAL_CLOSE" | "REVERSE") => {
     const actionKey = `${symbol}-${action}`;
     setLoadingActionKey(actionKey);
+
+    if (action === "CLOSE") {
+      setOptimisticClosedSymbols(prev => new Set(prev).add(symbol));
+    }
+
     try {
       await onAction(symbol, action);
     } catch (e) {
       console.error(`Error executing ${action} on ${symbol}`, e);
+      if (action === "CLOSE") {
+        setOptimisticClosedSymbols(prev => {
+          const next = new Set(prev);
+          next.delete(symbol);
+          return next;
+        });
+      }
     } finally {
       setLoadingActionKey(null);
     }
@@ -41,7 +54,9 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
 
   const sortedPositions = useMemo(() => {
     if (!positions || positions.length === 0) return [];
-    return [...positions].sort((a, b) => {
+    const activeList = positions.filter(p => !optimisticClosedSymbols.has(p.symbol));
+    return [...activeList].sort((a, b) => {
+
       let valA: any = a[sortField];
       let valB: any = b[sortField];
 

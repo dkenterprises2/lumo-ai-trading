@@ -612,12 +612,17 @@ async def manage_position(req: PositionActionRequest, current_user: UserModel = 
     """Position Actions: Close, Partial Close, Reverse, Edit SL/TP."""
     try:
         user_trader = await trader_manager.get_trader_for_user(current_user.id)
-        price = market_engine.fetch_current_price(req.symbol)
+
+        # Sub-millisecond non-blocking price lookup
+        price = market_engine.price_cache.get(req.symbol)
         if not price or price <= 0:
             if req.symbol in user_trader.positions:
-                price = user_trader.positions[req.symbol].get('entry_price', 1.0)
-            else:
-                price = 1.0
+                price = user_trader.positions[req.symbol].get('current_price') or user_trader.positions[req.symbol].get('entry_price')
+            if not price or price <= 0:
+                price = await asyncio.to_thread(market_engine.fetch_current_price, req.symbol)
+
+        if not price or price <= 0:
+            price = 1.0
 
         action = req.action.upper()
 
@@ -638,8 +643,9 @@ async def manage_position(req: PositionActionRequest, current_user: UserModel = 
         else:
             raise HTTPException(status_code=400, detail="Invalid action")
 
-        await user_trader.flush_persistence()
+        # Instant WebSocket sync & background persistence flush
         ws_manager.user_last_hashes.clear()
+        asyncio.create_task(user_trader.flush_persistence())
 
         if res.get("status") == "error":
             raise HTTPException(status_code=400, detail=res.get("message", "Failed to process position action"))
@@ -650,6 +656,7 @@ async def manage_position(req: PositionActionRequest, current_user: UserModel = 
     except Exception as e:
         logger.error(f"[MANAGE_POSITION_ERROR] Symbol={req.symbol} Action={req.action}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Position action failed: {str(e)}")
+
 
 
 
