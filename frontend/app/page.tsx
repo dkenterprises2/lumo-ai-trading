@@ -1,5 +1,5 @@
-import React from "react";
-import Metadata from "next";
+import type { Metadata } from "next";
+
 import Navbar from "../components/landing/Navbar";
 import Hero from "../components/landing/Hero";
 import FeatureGrid from "../components/landing/FeatureGrid";
