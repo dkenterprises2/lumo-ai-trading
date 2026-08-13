@@ -92,17 +92,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (credentials: any) => {
     setIsLoading(true);
     logAuthDebug('/api/auth/login', 'POST');
-    const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+    const res = await apiFetch('/api/auth/login', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(credentials),
-      credentials: 'include',
     });
 
     const data = await res.json();
     if (!res.ok) {
       setIsLoading(false);
-      throw new Error(data.detail || 'Login failed');
+      const detailMsg = typeof data.detail === 'string' ? data.detail : (Array.isArray(data.detail) ? data.detail.map((i: any) => i.msg || JSON.stringify(i)).join(', ') : data.message);
+      throw new Error(detailMsg || 'Login failed. Please check your credentials.');
     }
 
     setUser(data.user);
@@ -118,8 +117,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let redirectUrl = isSuperAdmin ? '/admin' : '/dashboard';
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
-      const target = params.get('redirect');
-      if (target) redirectUrl = target;
+      const redirectParam = params.get('redirect');
+      if (redirectParam) {
+        redirectUrl = redirectParam;
+      }
       window.location.href = redirectUrl;
     } else {
       router.push(redirectUrl);
@@ -130,17 +131,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const register = async (userData: any) => {
     setIsLoading(true);
     logAuthDebug('/api/auth/register', 'POST');
-    const res = await fetch(`${API_BASE_URL}/api/auth/register`, {
+    const res = await apiFetch('/api/auth/register', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(userData),
-      credentials: 'include',
     });
 
     const data = await res.json();
     if (!res.ok) {
       setIsLoading(false);
-      throw new Error(data.detail || 'Registration failed');
+      const detailMsg = typeof data.detail === 'string' ? data.detail : (Array.isArray(data.detail) ? data.detail.map((i: any) => i.msg || JSON.stringify(i)).join(', ') : data.message);
+      throw new Error(detailMsg || 'Registration failed.');
     }
 
     setUser(data.user);
@@ -154,17 +154,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       router.push('/dashboard');
     }
-
-
   };
 
   const logout = async () => {
     try {
       logAuthDebug('/api/auth/logout', 'POST');
-      await fetch(`${API_BASE_URL}/api/auth/logout`, {
+      await apiFetch('/api/auth/logout', {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: 'include',
       });
     } catch (e) {
       // Ignore network errors on logout
@@ -179,20 +175,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateProfile = async (profileData: any) => {
     logAuthDebug('/api/auth/profile', 'PUT');
-    const res = await fetch(`${API_BASE_URL}/api/auth/profile`, {
+    const res = await apiFetch('/api/auth/profile', {
       method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: token ? `Bearer ${token}` : '',
-      },
       body: JSON.stringify(profileData),
-      credentials: 'include',
     });
-
 
     const data = await res.json();
     if (!res.ok) {
-      throw new Error(data.detail || 'Profile update failed');
+      const detailMsg = typeof data.detail === 'string' ? data.detail : (Array.isArray(data.detail) ? data.detail.map((i: any) => i.msg || JSON.stringify(i)).join(', ') : data.message);
+      throw new Error(detailMsg || 'Profile update failed');
     }
 
     setUser(data.user);
