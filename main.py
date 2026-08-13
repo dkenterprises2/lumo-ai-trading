@@ -33,6 +33,7 @@ ai_strategy = AITradingStrategy()
 trader = PaperTrader(initial_balance=settings.PAPER_TRADING_INITIAL_BALANCE)
 
 from contextlib import asynccontextmanager
+from backend.database.session import init_db
 
 
 @asynccontextmanager
@@ -41,6 +42,12 @@ async def lifespan(app: FastAPI):
     main_loop = asyncio.get_running_loop()
     trader.set_main_event_loop(main_loop)
     trader_manager.set_main_event_loop(main_loop)
+
+    try:
+        await init_db()
+        logger.info("[LIFESPAN] Database tables initialized successfully.")
+    except Exception as e:
+        logger.error(f"[LIFESPAN] Error during init_db: {e}")
 
     await trader.initialize_and_restore_state()
     logger.info(f"[LIFESPAN] State restoration complete. Final state: {trader.state}")
@@ -63,8 +70,6 @@ async def lifespan(app: FastAPI):
         learning_thread.start()
         logger.info("[LIFESPAN] Background learning scheduler thread started successfully.")
 
-
-
     yield
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
@@ -72,16 +77,20 @@ app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=li
 # Configure CORS Middleware at top of middleware stack
 VERCEL_FRONTEND_URL = os.getenv(
     "VERCEL_FRONTEND_URL",
-    "https://lumo-ai.vercel.app"
+    "https://lumo-ai-trading.vercel.app"
 )
 
 cors_origins = [
     VERCEL_FRONTEND_URL,
+    "https://lumo-ai-trading.vercel.app",
+    "https://lumo-ai.vercel.app",
+    "https://lumo.trade",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:8000",
     "http://127.0.0.1:8000"
 ]
+
 
 raw_cors = getattr(settings, "CORS_ALLOWED_ORIGINS", "")
 if isinstance(raw_cors, str):

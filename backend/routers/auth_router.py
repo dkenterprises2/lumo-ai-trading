@@ -45,7 +45,7 @@ class RegisterRequest(BaseModel):
     name: str
     email: str
     password: str
-    confirm_password: str
+    confirm_password: Optional[str] = None
 
 class LoginRequest(BaseModel):
     email: str
@@ -74,116 +74,119 @@ class ResetPasswordRequest(BaseModel):
 class RefreshTokenRequest(BaseModel):
     refresh_token: Optional[str] = None
 
-@router.post("/register", status_code=status.HTTP_201_CREATED)
+@router.post("/register")
 async def register_user(
     body: RegisterRequest,
     response: Response,
     session: AsyncSession = Depends(get_db)
 ):
     """User Registration Endpoint with validation & automatic initial portfolio creation."""
-    name = body.name.strip()
-    email = body.email.strip().lower()
-    password = body.password
-    confirm_password = body.confirm_password
+    try:
+        name = body.name.strip() if body.name else ""
+        email = body.email.strip().lower() if body.email else ""
+        password = body.password
+        confirm_password = body.confirm_password or password
 
-    if not name:
-        raise HTTPException(status_code=400, detail="Name is required.")
+        if not name:
+            raise HTTPException(status_code=400, detail="Name is required.")
 
-    if not validate_email(email):
-        raise HTTPException(status_code=400, detail="Invalid email format.")
+        if not validate_email(email):
+            raise HTTPException(status_code=400, detail="Invalid email format.")
 
-    if password != confirm_password:
-        raise HTTPException(status_code=400, detail="Passwords do not match.")
+        if password != confirm_password:
+            raise HTTPException(status_code=400, detail="Passwords do not match.")
 
-    pwd_err = validate_password_strength(password)
-    if pwd_err:
-        raise HTTPException(status_code=400, detail=pwd_err)
+        pwd_err = validate_password_strength(password)
+        if pwd_err:
+            raise HTTPException(status_code=400, detail=pwd_err)
 
-    # Check duplicate email
-    result = await session.execute(select(UserModel).where(UserModel.email == email))
-    if result.scalars().first():
-        raise HTTPException(status_code=409, detail="An account with this email address already exists.")
+        # Check duplicate email
+        result = await session.execute(select(UserModel).where(UserModel.email == email))
+        if result.scalars().first():
+            raise HTTPException(status_code=400, detail="Email already exists")
 
-    username = email.split("@")[0] + "_" + secrets.token_hex(4)
-    hashed_pwd = hash_password(password)
+        username = email.split("@")[0] + "_" + secrets.token_hex(4)
+        hashed_pwd = hash_password(password)
 
-    new_user = UserModel(
-        name=name,
-        username=username,
-        email=email,
-        password_hash=hashed_pwd,
-        avatar=f"https://api.dicebear.com/7.x/avataaars/svg?seed={name.replace(' ', '')}",
-        timezone="UTC",
-        trading_mode="Paper",
-        role="trader",
-        is_active=True
-    )
-    session.add(new_user)
-    await session.commit()
-    await session.refresh(new_user)
+        new_user = UserModel(
+            name=name,
+            username=username,
+            email=email,
+            password_hash=hashed_pwd,
+            avatar=f"https://api.dicebear.com/7.x/avataaars/svg?seed={name.replace(' ', '')}",
+            timezone="UTC",
+            trading_mode="Paper",
+            role="trader",
+            is_active=True
+        )
+        session.add(new_user)
+        await session.commit()
+        await session.refresh(new_user)
 
-    # Create isolated initial portfolio & wallet deposit ledger record for new user
-    user_portfolio = PortfolioModel(
-        user_id=new_user.id,
-        usdt_balance=10000.0,
-        initial_balance=10000.0,
-        margin_used=0.0,
-        total_value=10000.0,
-        auto_bot_enabled=False,
-        active_strategy="AI Hybrid",
-        risk_mode="Moderate"
-    )
-    session.add(user_portfolio)
+        # Create isolated initial portfolio & wallet deposit ledger record for new user
+        user_portfolio = PortfolioModel(
+            user_id=new_user.id,
+            usdt_balance=10000.0,
+            initial_balance=10000.0,
+            margin_used=0.0,
+            total_value=10000.0,
+            auto_bot_enabled=False,
+            active_strategy="AI Hybrid",
+            risk_mode="Moderate"
+        )
+        session.add(user_portfolio)
 
-    initial_tx = WalletTransactionModel(
-        user_id=new_user.id,
-        tx_id=f"TX_{int(time.time() * 1000)}_1",
-        timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
-        tx_type="DEPOSIT",
-        amount=10000.0,
-        balance_after=10000.0,
-        reference_id="INIT_DEPOSIT",
-        description="Initial Capital Deposit"
-    )
-    session.add(initial_tx)
-    await session.commit()
+        initial_tx = WalletTransactionModel(
+            user_id=new_user.id,
+            tx_id=f"TX_{int(time.time() * 1000)}_1",
+            timestamp=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
+            tx_type="DEPOSIT",
+            amount=10000.0,
+            balance_after=10000.0,
+            reference_id="INIT_DEPOSIT",
+            description="Initial Capital Deposit"
+        )
+        session.add(initial_tx)
+        await session.commit()
 
+        # Create initial tokens
+        access_token = create_access_token({"sub": str(new_user.id), "email": new_user.email})
+        refresh_token = create_refresh_token({"sub": str(new_user.id)})
 
-    # Create initial tokens
-    access_token = create_access_token({"sub": str(new_user.id), "email": new_user.email})
-    refresh_token = create_refresh_token({"sub": str(new_user.id)})
+        # Persist refresh token
+        refresh_model = RefreshTokenModel(
+            user_id=new_user.id,
+            token=refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        )
+        session.add(refresh_model)
+        await session.commit()
 
-    # Persist refresh token
-    refresh_model = RefreshTokenModel(
-        user_id=new_user.id,
-        token=refresh_token,
-        expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    )
-    session.add(refresh_model)
-    await session.commit()
+        # Set cookies
+        response.set_cookie(key="access_token", value=access_token, httponly=True, samesite="lax", max_age=60*60)
+        response.set_cookie(key="lumo_access_token", value=access_token, httponly=True, samesite="lax", max_age=60*60)
+        response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, samesite="lax", max_age=7*24*3600)
 
-    # Set cookies
-    response.set_cookie(key="access_token", value=access_token, httponly=True, samesite="lax", max_age=60*60)
-    response.set_cookie(key="lumo_access_token", value=access_token, httponly=True, samesite="lax", max_age=60*60)
-    response.set_cookie(key="refresh_token", value=refresh_token, httponly=True, samesite="lax", max_age=7*24*3600)
-
-
-
-    return {
-        "status": "success",
-        "message": "User registered successfully",
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": {
-            "id": new_user.id,
-            "name": new_user.name,
-            "email": new_user.email,
-            "avatar": new_user.avatar,
-            "timezone": new_user.timezone,
-            "trading_mode": new_user.trading_mode
+        return {
+            "status": "success",
+            "message": "Account created successfully",
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "user": {
+                "id": new_user.id,
+                "name": new_user.name,
+                "email": new_user.email,
+                "avatar": new_user.avatar,
+                "timezone": new_user.timezone,
+                "trading_mode": new_user.trading_mode
+            }
         }
-    }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Registration error: {str(e)}")
+
 
 @router.post("/login")
 async def login_user(
