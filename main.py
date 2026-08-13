@@ -654,9 +654,9 @@ async def manage_position(req: PositionActionRequest, current_user: UserModel = 
 
 
 
-@app.post("/api/bot/strategy")
 @app.get("/api/accounting/audit")
 async def get_accounting_audit(current_user: UserModel = Depends(get_current_user)):
+
     user_trader = await trader_manager.get_trader_for_user(current_user.id)
     current_prices = {}
     for sym in settings.SUPPORTED_SYMBOLS:
@@ -696,134 +696,7 @@ async def get_accounting_audit(current_user: UserModel = Depends(get_current_use
     }
 
 
-class WalletFundsRequest(BaseModel):
-    amount: float
 
-@app.post("/api/wallet/deposit")
-async def deposit_virtual_funds(body: WalletFundsRequest, current_user: UserModel = Depends(get_current_user)):
-    """Deposit virtual USDT capital into the user's paper trading wallet."""
-    if body.amount <= 0:
-        raise HTTPException(status_code=400, detail="Deposit amount must be greater than zero.")
-
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    tx = user_trader._execute_ledger_transaction(
-        tx_type="DEPOSIT",
-        amount=body.amount,
-        reference_id="USER_DEPOSIT",
-        description=f"Virtual Capital Deposit of ${body.amount:.2f} USDT"
-    )
-    await user_trader.save_portfolio_async()
-    return {
-        "status": "success",
-        "message": f"Successfully deposited ${body.amount:.2f} USDT virtual funds.",
-        "usdt_balance": user_trader.usdt_balance,
-        "transaction": tx
-    }
-
-@app.post("/api/wallet/withdraw")
-async def withdraw_virtual_funds(body: WalletFundsRequest, current_user: UserModel = Depends(get_current_user)):
-    """Withdraw virtual USDT capital from the user's paper trading wallet."""
-    if body.amount <= 0:
-        raise HTTPException(status_code=400, detail="Withdrawal amount must be greater than zero.")
-
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    if user_trader.usdt_balance < body.amount:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Insufficient USDT balance. Available: ${user_trader.usdt_balance:.2f} USDT, Requested: ${body.amount:.2f} USDT"
-        )
-
-    tx = user_trader._execute_ledger_transaction(
-        tx_type="WITHDRAWAL",
-        amount=-abs(body.amount),
-        reference_id="USER_WITHDRAWAL",
-        description=f"Virtual Capital Withdrawal of ${body.amount:.2f} USDT"
-    )
-    await user_trader.save_portfolio_async()
-    return {
-        "status": "success",
-        "message": f"Successfully withdrew ${body.amount:.2f} USDT virtual funds.",
-        "usdt_balance": user_trader.usdt_balance,
-        "transaction": tx
-    }
-
-@app.post("/api/wallet/reset-paper-account")
-async def reset_user_paper_account(current_user: UserModel = Depends(get_current_user)):
-    """Reset paper trading account balance to default $10,000 USDT and clear all positions/trades."""
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    res = await user_trader.reset_paper_account_async(default_balance=10000.0)
-    ws_manager.user_last_hashes.pop(current_user.id, None)
-    return res
-
-
-@app.delete("/api/user/delete-account")
-async def delete_user_account(
-    current_user: UserModel = Depends(get_current_user),
-    session: AsyncSession = Depends(get_db)
-):
-    """Permanently delete user account, session tokens, and all associated database records."""
-    user_id = current_user.id
-
-    # Clean up trader instance in memory
-    async with trader_manager._lock:
-        if user_id in trader_manager.traders:
-            del trader_manager.traders[user_id]
-
-    return {"status": "success", "message": "Account and all associated trading data permanently deleted."}
-
-
-
-
-@app.post("/api/trade/order")
-async def execute_manual_order(req: OrderRequest, current_user: UserModel = Depends(get_current_user)):
-    """Advanced Manual Order Execution (LONG/SHORT, Leverage, SL, TP, Trailing Stop)."""
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    price = market_engine.fetch_current_price(req.symbol)
-    
-    sl_price = req.stop_loss_price or (price * 0.975 if req.side.upper() == "LONG" else price * 1.025)
-    tp_price = req.take_profit_price or (price * 1.05 if req.side.upper() == "LONG" else price * 0.95)
-
-    res = user_trader.open_position(
-        symbol=req.symbol,
-        side=req.side.upper(),
-        price=price,
-        allocation_usd=req.allocation_usd,
-        stop_loss_price=sl_price,
-        take_profit_price=tp_price,
-        leverage=req.leverage,
-        order_type=req.order_type,
-        trailing_stop_pct=req.trailing_stop_pct,
-        reason=f"Manual Order ({req.side} {req.leverage}x)"
-    )
-    await user_trader.flush_persistence()
-    return res
-
-@app.post("/api/trade/position-action")
-async def manage_position(req: PositionActionRequest, current_user: UserModel = Depends(get_current_user)):
-    """Position Actions: Close, Partial Close, Reverse, Edit SL/TP."""
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    price = market_engine.fetch_current_price(req.symbol)
-    action = req.action.upper()
-
-    if action == "CLOSE":
-        res = user_trader.close_position(req.symbol, price, reason="Manual Position Close")
-    elif action == "PARTIAL_CLOSE":
-        res = user_trader.close_position(req.symbol, price, reason="Partial Take Profit", ratio=req.ratio or 0.5)
-    elif action == "REVERSE":
-        res = user_trader.reverse_position(req.symbol, price)
-    elif action == "EDIT_SL_TP":
-        if req.symbol in user_trader.positions:
-            pos = user_trader.positions[req.symbol]
-            if req.new_stop_loss: pos['stop_loss_price'] = req.new_stop_loss
-            if req.new_take_profit: pos['take_profit_price'] = req.new_take_profit
-            res = {"status": "success", "message": f"Updated SL/TP targets for {req.symbol}"}
-        else:
-            res = {"status": "error", "message": "Position not found"}
-    else:
-        raise HTTPException(status_code=400, detail="Invalid action")
-
-    await user_trader.flush_persistence()
-    return res
 
 
 @app.post("/api/bot/strategy")
@@ -855,38 +728,7 @@ async def update_bot_strategy(
     }
 
 
-@app.post("/api/bot/parameters")
-async def update_bot_parameters(
-    req: Optional[ExecutionParametersRequest] = Body(None),
-    default_allocation_usd: Optional[float] = Query(None),
-    default_leverage: Optional[int] = Query(None),
-    current_user: UserModel = Depends(get_current_user)
-):
-    """Update Default Execution Sizing and Leverage for AI Trading Engine."""
-    alloc = (req.default_allocation_usd if req and req.default_allocation_usd is not None else default_allocation_usd) or 1000.0
-    lev = (req.default_leverage if req and req.default_leverage is not None else default_leverage) or 1
-    if alloc <= 0:
-        raise HTTPException(status_code=400, detail="Default allocation must be greater than 0")
-    if lev < 1 or lev > 25:
-        raise HTTPException(status_code=400, detail="Default leverage must be between 1x and 25x")
 
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    user_trader.default_allocation_usd = float(alloc)
-    user_trader.default_leverage = int(lev)
-    trader.default_allocation_usd = float(alloc)
-    trader.default_leverage = int(lev)
-    await user_trader.save_portfolio_async()
-    await trader.save_portfolio_async()
-    ws_manager.user_last_hashes.clear()
-
-    
-    logger.info(f"[EXECUTION_PARAMS] UserID={current_user.id} updated params: Allocation=${alloc:,.2f} USDT, Leverage={lev}x")
-    return {
-        "status": "success",
-        "message": f"Execution parameters applied: ${alloc:,.2f} USDT allocation @ {lev}x leverage",
-        "default_allocation_usd": alloc,
-        "default_leverage": lev
-    }
 
 
 @app.get("/api/market-health")

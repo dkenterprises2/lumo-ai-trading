@@ -29,13 +29,16 @@ async_engine = create_async_engine(
 @event.listens_for(async_engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     try:
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA busy_timeout=30000")
-        cursor.execute("PRAGMA synchronous=NORMAL")
-        cursor.close()
+        conn = getattr(dbapi_connection, "_conn", dbapi_connection)
+        if hasattr(conn, "cursor"):
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA busy_timeout=30000")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.close()
     except Exception as e:
         logger.warning(f"Failed to set SQLite PRAGMAs: {e}")
+
 
 
 AsyncSessionLocal = async_sessionmaker(

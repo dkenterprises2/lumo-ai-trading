@@ -786,7 +786,8 @@ class PaperTrader:
             "reason": reason,
             "exchange": "PAPER_EXCHANGE",
             "order_id": f"ORD_{pos['id']}",
-            "entry_fee": round(pos['margin_usd'] * pos['leverage'] * 0.0005, 4),
+            "entry_fee": round(pos.get('margin_usd', 0.0) * pos.get('leverage', 1) * 0.0005, 4),
+
             "exit_fee": round(amount_to_close * price * 0.0005, 4),
             "funding_fee": 0.0,
             "slippage": 0.0,
