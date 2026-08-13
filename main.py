@@ -109,6 +109,7 @@ async def system_health():
     }
 
 from fastapi import Request
+from fastapi.responses import JSONResponse
 
 
 @app.middleware("http")
@@ -119,6 +120,21 @@ async def log_incoming_requests(request: Request, call_next):
     logger.info(f"[BACKEND_REQUEST]\n{request.method} {request.url.path}\nHost: {request.headers.get('host')}\nOrigin: {request.headers.get('origin')}\nReferer: {request.headers.get('referer')}\nClient IP: {client_ip}")
     response = await call_next(request)
     return response
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"[GLOBAL_SERVER_ERROR] {request.method} {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "message": f"Internal Server Error: {str(exc)}",
+            "detail": f"Internal Server Error: {str(exc)}",
+            "path": request.url.path
+        }
+    )
+
 
 
 

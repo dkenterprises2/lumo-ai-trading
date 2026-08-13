@@ -136,8 +136,17 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = "";
     try {
       const body: unknown = await response.json();
-      if (typeof body === "object" && body !== null && "detail" in body && typeof body.detail === "string") {
-        detail = body.detail;
+      if (typeof body === "object" && body !== null) {
+        const obj = body as Record<string, any>;
+        if (typeof obj.detail === "string") {
+          detail = obj.detail;
+        } else if (Array.isArray(obj.detail)) {
+          detail = obj.detail.map((item: any) => item.msg || JSON.stringify(item)).join(", ");
+        } else if (typeof obj.message === "string") {
+          detail = obj.message;
+        } else if (typeof obj.error === "string") {
+          detail = obj.error;
+        }
       }
     } catch {
       // A non-JSON error response still has a meaningful HTTP status.
@@ -147,6 +156,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   return response.json() as Promise<T>;
 }
+
 
 export async function checkBackendHealth(): Promise<{ status: string; service?: string; cors_frontend?: string }> {
   return requestJson<{ status: string; service?: string; cors_frontend?: string }>("/api/system/health");

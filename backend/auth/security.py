@@ -3,7 +3,12 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
-import bcrypt
+try:
+    import bcrypt
+except ImportError:
+    bcrypt = None
+import hashlib
+
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
@@ -28,17 +33,34 @@ LOCKOUT_DURATION_MINUTES = 15
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 def hash_password(password: str) -> str:
-    """Hash password using bcrypt."""
+    """Hash password using bcrypt with PBKDF2 fallback."""
     pwd_bytes = password.encode("utf-8")
-    salt = bcrypt.gensalt()
-    return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
+    if bcrypt is not None:
+        try:
+            salt = bcrypt.gensalt()
+            return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
+        except Exception:
+            pass
+    salt = secrets.token_hex(16)
+    hashed = hashlib.pbkdf2_hmac('sha256', pwd_bytes, salt.encode('utf-8'), 100000).hex()
+    return f"pbkdf2:{salt}:{hashed}"
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password against bcrypt hash."""
+    """Verify password against bcrypt hash or PBKDF2 fallback."""
     try:
-        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+        if hashed_password.startswith("pbkdf2:"):
+            parts = hashed_password.split(":")
+            if len(parts) == 3:
+                salt = parts[1]
+                expected_hash = parts[2]
+                computed = hashlib.pbkdf2_hmac('sha256', plain_password.encode('utf-8'), salt.encode('utf-8'), 100000).hex()
+                return secrets.compare_digest(computed, expected_hash)
+        if bcrypt is not None:
+            return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
     except Exception:
         return False
+    return False
+
 
 
 
