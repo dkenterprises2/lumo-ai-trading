@@ -180,13 +180,16 @@ from backend.routers.preferences_router import router as preferences_router
 from backend.routers.portfolio_risk_router import router as portfolio_risk_router
 from backend.routers.execution_router import router as execution_router
 from backend.routers.system_router import router as system_router
+from backend.routers.shadow_router import router as shadow_router
 
 app.include_router(auth_router)
 app.include_router(preferences_router)
 app.include_router(portfolio_risk_router)
 app.include_router(execution_router)
 app.include_router(system_router)
+app.include_router(shadow_router)
 app.include_router(exchange_router)
+
 
 
 
