@@ -21,6 +21,14 @@ interface SubscriptionLimitsCardProps {
   onPreferencesUpdated?: () => void;
 }
 
+const DEFAULT_50_SYMBOLS = [
+  "BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "XRP/USDT", "ADA/USDT", "DOGE/USDT", "AVAX/USDT", "DOT/USDT", "LINK/USDT",
+  "MATIC/USDT", "ATOM/USDT", "NEAR/USDT", "APT/USDT", "SUI/USDT", "OP/USDT", "ARB/USDT", "LTC/USDT", "ETC/USDT", "XLM/USDT",
+  "FIL/USDT", "INJ/USDT", "TIA/USDT", "UNI/USDT", "ICP/USDT", "FET/USDT", "RNDR/USDT", "PEPE/USDT", "SHIB/USDT", "FLOKI/USDT",
+  "AAVE/USDT", "MKR/USDT", "SNX/USDT", "CRV/USDT", "LDO/USDT", "GRT/USDT", "ALGO/USDT", "FTM/USDT", "SAND/USDT", "MANA/USDT",
+  "THETA/USDT", "AXS/USDT", "EGLD/USDT", "EOS/USDT", "FLOW/USDT", "KAVA/USDT", "MINA/USDT", "QNT/USDT", "RUNE/USDT", "WOO/USDT"
+];
+
 export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
   userPlan = 'INSTITUTIONAL',
   activePositionsCount = 0,
@@ -31,7 +39,7 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
     max_capital_per_trade_pct: 10,
     daily_loss_limit_pct: 5,
     symbol_cooldown_minutes: 10,
-    allowed_symbols: ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'AVAX/USDT'],
+    allowed_symbols: DEFAULT_50_SYMBOLS,
     default_allocation_usd: 1000,
     default_leverage: 1
   });
@@ -56,13 +64,14 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
             max_capital_per_trade_pct: prefs.max_capital_per_trade_pct ?? 10,
             daily_loss_limit_pct: prefs.daily_loss_limit_pct ?? 5,
             symbol_cooldown_minutes: prefs.symbol_cooldown_minutes ?? 10,
-            allowed_symbols: prefs.allowed_symbols || ['BTC/USDT', 'ETH/USDT'],
+            allowed_symbols: (prefs.allowed_symbols && prefs.allowed_symbols.length >= 10) ? prefs.allowed_symbols : DEFAULT_50_SYMBOLS,
             default_allocation_usd: prefs.default_allocation_usd ?? 1000,
             default_leverage: prefs.default_leverage ?? 1
           });
         }
       }
     } catch (err: any) {
+
       console.warn('Failed to load trading preferences:', err);
     } finally {
       setLoading(false);

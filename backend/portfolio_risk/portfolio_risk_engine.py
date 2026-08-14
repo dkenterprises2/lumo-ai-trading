@@ -263,7 +263,9 @@ class InstitutionalPortfolioRiskEngine:
             }
         except Exception as e:
             # FAIL-SAFE: Any risk calculation failure MUST block new trades!
+            logger.error(f"[RISK_ENGINE_EXCEPTION] Fail-safe caught exception during evaluate_order_gate: {e}", exc_info=True)
             exp = self.explainability_engine.format_explanation(
+
                 decision="BLOCKED",
                 symbol=symbol,
                 side=side,

@@ -83,8 +83,10 @@ async def update_trading_preferences(
     if body.symbol_cooldown_minutes is not None:
         trader_inst.symbol_cooldown_minutes = body.symbol_cooldown_minutes
 
-    if body.allowed_symbols is not None:
+    if body.allowed_symbols is not None and len(body.allowed_symbols) >= (body.max_concurrent_trades or 10):
         trader_inst.allowed_symbols = body.allowed_symbols
+    else:
+        trader_inst.allowed_symbols = DEFAULT_50_SYMBOLS
 
     if body.default_allocation_usd is not None:
         trader_inst.default_allocation_usd = body.default_allocation_usd

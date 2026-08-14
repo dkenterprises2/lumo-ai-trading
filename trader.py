@@ -90,15 +90,16 @@ class PaperTrader:
 
     def apply_plan_limits(self, plan_name: str):
         """Dynamically apply plan tier limits to max open positions and institutional risk manager."""
-        p = (plan_name or "").upper()
-        if "ENTERPRISE" in p or "INSTITUTIONAL" in p:
+        p = (plan_name or "INSTITUTIONAL").upper()
+        if "ENTERPRISE" in p or "INSTITUTIONAL" in p or not plan_name:
             plan_max = 50
         elif "PRO" in p:
             plan_max = 30
         elif "BASIC" in p:
             plan_max = 15
         else:
-            plan_max = 5
+            plan_max = 50
+
 
         # Respect current user preference if set, up to plan ceiling
         current = getattr(self, "max_open_positions", plan_max)
@@ -672,6 +673,15 @@ class PaperTrader:
 
         margin_required = allocation_usd / leverage
 
+        # Dynamic slot-based margin scaling to allow filling up to max_open_positions (e.g. 50 trades)
+        remaining_slots = max(1, self.max_open_positions - len(self.positions))
+        safe_margin_per_slot = max(10.0, self.usdt_balance / float(remaining_slots))
+
+        if margin_required > safe_margin_per_slot:
+            logger.info(f"[DYNAMIC_MARGIN_SCALING] UserID={self.user_id} | Scaling margin per slot from ${margin_required:.2f} to ${safe_margin_per_slot:.2f} (RemainingSlots={remaining_slots}/{self.max_open_positions})")
+            margin_required = safe_margin_per_slot
+            allocation_usd = margin_required * leverage
+
         if margin_required > self.usdt_balance:
             logger.info(f"[RISK_ADJUSTMENT] UserID={self.user_id} | Margin required ${margin_required:.2f} > USDT balance ${self.usdt_balance:.2f}. Cap margin to ${self.usdt_balance:.2f}.")
             margin_required = self.usdt_balance
@@ -680,6 +690,7 @@ class PaperTrader:
         if margin_required < 5.0:
             logger.info(f"[RISK_REJECTION] UserID={self.user_id} | Symbol={symbol} rejected: Margin required ${margin_required:.2f} < $5.0 minimum balance requirement.")
             return {"status": "error", "message": "Insufficient USDT balance to open position"}
+
 
 
         logger.info(f"[RISK_PASSED] UserID={self.user_id} | Risk validations passed. MarginRequired=${margin_required:.2f}, Allocation=${allocation_usd:.2f}")

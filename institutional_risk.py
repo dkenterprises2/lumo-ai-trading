@@ -126,10 +126,12 @@ class InstitutionalRiskManager:
         # RULE 5: Correlation Filter
         if self.config.correlation_filter_enabled:
             group1_active = [sym for sym in active_positions if sym in self.CORRELATED_GROUPS["MAJOR_ALT_LONG"]]
-            if len(group1_active) >= self.config.correlation_group_limit and symbol in self.CORRELATED_GROUPS["MAJOR_ALT_LONG"]:
+            corr_limit = max(self.config.correlation_group_limit, self.config.max_concurrent_trades)
+            if len(group1_active) >= corr_limit and symbol in self.CORRELATED_GROUPS["MAJOR_ALT_LONG"]:
                 msg = f"[RISK_REJECTION] [CORRELATION_FILTER] Already holding {len(group1_active)} correlated assets ({', '.join(group1_active)}). Blocked {symbol} to prevent correlated risk stacking."
                 logger.warning(msg)
                 return {"passed": False, "status": "error", "rule": "CORRELATION_FILTER", "message": msg}
+
 
         # RULE 6: Volatility Filter (ATR Spike Detection)
         atr = float(ta_data.get("atr", price * 0.02))
