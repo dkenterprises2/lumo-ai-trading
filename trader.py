@@ -650,8 +650,25 @@ class PaperTrader:
 
         logger.info(f"[RISK_PASSED] UserID={self.user_id} | Risk validations passed. MarginRequired=${margin_required:.2f}, Allocation=${allocation_usd:.2f}")
         amount = allocation_usd / price
-        
+
+        # Phase 35 Institutional OMS / EMS Single Gateway Submission
+        try:
+            from backend.execution import execution_orchestrator
+            oms_res = execution_orchestrator.submit_order(
+                user_id=str(self.user_id),
+                symbol=symbol,
+                side=side,
+                quantity=amount,
+                order_type=order_type,
+                price=price
+            )
+            if oms_res.get("status") == "rejected":
+                return {"status": "error", "message": f"Phase 35 OMS Rejection: {oms_res.get('reason')}"}
+        except Exception as p35_ex:
+            logger.error(f"[PHASE_35_OMS_ERROR] Execution error in OMS single gateway: {p35_ex}")
+
         pos_id = f"POS_{int(time.time() * 1000)}_{symbol.replace('/', '')}"
+
 
 
         # Execute margin lock through double-entry ledger
