@@ -175,10 +175,13 @@ from backend.routers.execution_network_router import router as execution_network
 from backend.routers.ai_copilot_router import router as ai_copilot_router
 from backend.routers.learning_router import router as learning_router
 from backend.routers.preferences_router import router as preferences_router
+from backend.routers.portfolio_risk_router import router as portfolio_risk_router
 
 app.include_router(auth_router)
 app.include_router(preferences_router)
+app.include_router(portfolio_risk_router)
 app.include_router(exchange_router)
+
 
 app.include_router(strategy_router)
 app.include_router(analytics_router)

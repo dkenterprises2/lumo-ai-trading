@@ -12,19 +12,38 @@ Base = declarative_base()
 import backend.models.domain  # noqa: F401
 
 
-# Configure Async Database Engine
-ASYNC_DB_URL = settings.ASYNC_DATABASE_URL
+raw_db_url = os.getenv("DATABASE_URL", os.getenv("ASYNC_DATABASE_URL", settings.ASYNC_DATABASE_URL))
+if raw_db_url.startswith("postgres://"):
+    ASYNC_DB_URL = raw_db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif raw_db_url.startswith("postgresql://") and not raw_db_url.startswith("postgresql+asyncpg://"):
+    ASYNC_DB_URL = raw_db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+else:
+    ASYNC_DB_URL = raw_db_url
 
 from sqlalchemy import event
 
-connect_args = {"check_same_thread": False, "timeout": 30.0} if "sqlite" in ASYNC_DB_URL else {}
+is_sqlite = "sqlite" in ASYNC_DB_URL
+connect_args = {"check_same_thread": False, "timeout": 30.0} if is_sqlite else {}
+
+engine_kwargs = {
+    "echo": False,
+    "future": True,
+    "connect_args": connect_args
+}
+
+if not is_sqlite:
+    engine_kwargs.update({
+        "pool_size": getattr(settings, "DB_POOL_SIZE", 10),
+        "max_overflow": getattr(settings, "DB_MAX_OVERFLOW", 20),
+        "pool_recycle": 1800,
+        "pool_pre_ping": True
+    })
 
 async_engine = create_async_engine(
     ASYNC_DB_URL,
-    echo=False,
-    connect_args=connect_args,
-    future=True
+    **engine_kwargs
 )
+
 
 @event.listens_for(async_engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):

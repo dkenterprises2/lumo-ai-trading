@@ -612,7 +612,32 @@ class PaperTrader:
         stop_loss_price = risk_res.get("stop_loss_price", stop_loss_price)
         take_profit_price = risk_res.get("take_profit_price", take_profit_price)
 
+        # Phase 34 Institutional Portfolio Intelligence & Risk Optimization Gate
+        try:
+            from backend.portfolio_risk import portfolio_risk_orchestrator
+            phase34_res = portfolio_risk_orchestrator.evaluate_order_gate(
+                user_trader=self,
+                symbol=symbol,
+                side=side,
+                allocation_usd=allocation_usd,
+                leverage=leverage,
+                stop_loss_price=stop_loss_price,
+                take_profit_price=take_profit_price
+            )
+
+            if not phase34_res["passed"]:
+                dec = phase34_res.get("decision", {})
+                reason_msg = dec.get("primary_factor", "PHASE_34_RISK_REJECTION")
+                logger.warning(f"[PHASE_34_RISK_REJECTION] UserID={self.user_id} | Symbol={symbol} rejected by Phase 34 Risk Gate: {reason_msg}")
+                return {"status": "error", "message": f"Phase 34 Risk Gate: {reason_msg}", "decision": dec}
+
+            allocation_usd = phase34_res.get("approved_allocation_usd", allocation_usd)
+            leverage = phase34_res.get("approved_leverage", leverage)
+        except Exception as p34_ex:
+            logger.error(f"[PHASE_34_RISK_FAILSAFE] Error in Phase 34 risk gate: {p34_ex}")
+
         margin_required = allocation_usd / leverage
+
         if margin_required > self.usdt_balance:
             logger.info(f"[RISK_ADJUSTMENT] UserID={self.user_id} | Margin required ${margin_required:.2f} > USDT balance ${self.usdt_balance:.2f}. Cap margin to ${self.usdt_balance:.2f}.")
             margin_required = self.usdt_balance

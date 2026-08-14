@@ -1,16 +1,19 @@
-import sys
-import os
 import pytest
+from backend.portfolio_risk.kill_switch import PortfolioKillSwitch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+def test_kill_switch_activation_and_recovery():
+    ks = PortfolioKillSwitch()
 
-from backend.execution_network.risk.pretrade_checks import pretrade_risk_controller
+    assert ks.is_halted is False
+    assert ks.state == "NORMAL"
 
-def test_kill_switch():
-    ks = pretrade_risk_controller.trigger_kill_switch()
-    assert ks["active"] is True
-    res = pretrade_risk_controller.validate_pretrade("BTCUSDT", 1.0, 64800.0)
-    assert res["passed"] is False
-    assert res["reason"] == "KILL_SWITCH_ACTIVE"
-    pretrade_risk_controller._kill_switch_active = False
+    # Activate
+    st1 = ks.activate("Extreme market volatility circuit breaker")
+    assert st1.is_active is True
+    assert st1.state == "HALTED"
 
+    # Recover
+    st2 = ks.recover(authorized_by="Admin Risk Officer")
+    assert st2.is_active is False
+    assert st2.state == "NORMAL"
+    assert len(st2.audit_events) == 2
