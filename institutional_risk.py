@@ -4,6 +4,18 @@ from loguru import logger
 import math
 import time
 
+def round_price(val: float) -> float:
+    if not val or val <= 0:
+        return 0.0
+    if val < 0.0001:
+        return round(val, 8)
+    if val < 0.01:
+        return round(val, 6)
+    if val < 1.0:
+        return round(val, 4)
+    return round(val, 2)
+
+
 @dataclass
 class InstitutionalRiskConfig:
     """Configurable parameters for Institutional Risk Engine 2.0."""
@@ -146,19 +158,9 @@ class InstitutionalRiskManager:
                 logger.info(f"[POSITION_SCALING] Moderate Drawdown ({drawdown_pct:.1f}%). Scaled allocation down 25% to ${adjusted_alloc:.2f}.")
 
         # RULE 9: Dynamic ATR Stop Loss & Take Profit Computation
-def round_price(val: float) -> float:
-    if not val or val <= 0:
-        return 0.0
-    if val < 0.0001:
-        return round(val, 8)
-    if val < 0.01:
-        return round(val, 6)
-    if val < 1.0:
-        return round(val, 4)
-    return round(val, 2)
-
         computed_sl = stop_loss_price
         computed_tp = take_profit_price
+
         if not computed_sl or computed_sl == 0.0 or not computed_tp or computed_tp == 0.0:
             sl_dist = atr * self.config.sl_atr_multiplier
             tp_dist = atr * self.config.tp_atr_multiplier
