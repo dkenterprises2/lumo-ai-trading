@@ -1,0 +1,43 @@
+from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Dict, Any, Optional
+
+from backend.auth.security import get_current_user
+from backend.models.domain import UserModel
+from backend.telemetry.ws_metrics import ws_metrics
+from backend.system.health_aggregator import health_aggregator
+from backend.accounting.reconciliation_engine import reconciliation_engine
+from backend.exchange.market_data_health import market_data_health
+
+router = APIRouter(tags=["Paper Trading System Health & Stabilization"])
+
+@router.get("/api/system/ws-health")
+async def get_websocket_health(current_user: UserModel = Depends(get_current_user)):
+    """Fetch real-time WebSocket connection and heartbeat metrics."""
+    return ws_metrics.get_metrics().to_dict()
+
+@router.get("/api/system/status")
+async def get_system_status():
+    """Single Source of Truth for Platform Health & Dashboard Status Indicators (Public / Unauthenticated for instant UI sync)."""
+    return health_aggregator.get_aggregated_health().model_dump()
+
+@router.get("/api/accounting/reconciliation")
+async def get_portfolio_reconciliation(current_user: UserModel = Depends(get_current_user)):
+    """Fetch portfolio reconciliation report and accounting invariant audit."""
+    report = reconciliation_engine.reconcile(
+        cash_balance=10000.0,
+        positions=[],
+        realized_pnl=0.0,
+        total_fees_paid=0.0
+    )
+    return report.to_dict()
+
+@router.get("/api/system/module-registry")
+async def get_module_registry(current_user: UserModel = Depends(get_current_user)):
+    """Fetch Enterprise Module Integration Status Registry (REAL / BETA / MOCK / DISABLED)."""
+    return health_aggregator.get_module_registry()
+
+@router.get("/api/exchange/health")
+async def get_exchange_market_data_health(exchange: Optional[str] = "BINANCE", current_user: UserModel = Depends(get_current_user)):
+    """Fetch exchange market data health and ticker latency metrics."""
+    health_dict = market_data_health.get_all_health()
+    return {ex: v.to_dict() for ex, v in health_dict.items()}

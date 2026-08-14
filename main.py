@@ -179,13 +179,15 @@ from backend.routers.learning_router import router as learning_router
 from backend.routers.preferences_router import router as preferences_router
 from backend.routers.portfolio_risk_router import router as portfolio_risk_router
 from backend.routers.execution_router import router as execution_router
-
+from backend.routers.system_router import router as system_router
 
 app.include_router(auth_router)
 app.include_router(preferences_router)
 app.include_router(portfolio_risk_router)
 app.include_router(execution_router)
+app.include_router(system_router)
 app.include_router(exchange_router)
+
 
 
 
@@ -428,6 +430,8 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
 
     ws_manager.connect_user(websocket, user_id=user_id)
     try:
+        from backend.telemetry import ws_metrics
+        ws_metrics.register_client()
         while True:
             # Keep-alive heartbeat & ping listener
             data = await websocket.receive_text()
@@ -435,10 +439,15 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
                 await websocket.send_json({"type": "pong", "timestamp": time.time()})
     except WebSocketDisconnect:
         logger.info("WS client disconnected")
+        from backend.telemetry import ws_metrics
+        ws_metrics.unregister_client()
         ws_manager.disconnect(websocket)
     except Exception as exc:
         logger.warning(f"WebSocket stream error: {exc}")
+        from backend.telemetry import ws_metrics
+        ws_metrics.unregister_client()
         ws_manager.disconnect(websocket)
+
         try:
             await websocket.close(code=1011)
         except Exception:
