@@ -27,57 +27,64 @@ class DynamicTradeLimitEngine:
         correlation_risk_score: float = 0.0,
         volatility_regime: str = "NORMAL",
         daily_loss_used_pct: float = 0.0,
-        max_daily_loss_pct: float = 5.0
+        max_daily_loss_pct: float = 5.0,
+        is_kill_switch_halted: bool = False
     ) -> DynamicTradeLimitResult:
         """Compute dynamic safe maximum open positions."""
-        u_max = max(1, user_configured_max_positions)
+        u_max = max(10, user_configured_max_positions) if (not user_configured_max_positions or user_configured_max_positions <= 0) else user_configured_max_positions
         d_limit = u_max
 
         factors = []
         constraining_factor = "USER_HARD_CEILING"
 
-        # 1. Portfolio Heat constraint
-        if portfolio_heat_status == "CRITICAL":
+        # 0. Emergency Kill Switch check
+        if is_kill_switch_halted:
             d_limit = 0
-            constraining_factor = "PORTFOLIO_HEAT_CRITICAL"
-            factors.append("Portfolio heat critical (0 slots)")
-        elif portfolio_heat_status == "HIGH":
-            d_limit = min(d_limit, max(1, int(u_max * 0.4)))
-            constraining_factor = "PORTFOLIO_HEAT_HIGH"
-            factors.append("Portfolio heat high (40% capacity)")
-        elif portfolio_heat_status == "WARNING":
-            d_limit = min(d_limit, max(2, int(u_max * 0.7)))
-            if constraining_factor == "USER_HARD_CEILING": constraining_factor = "PORTFOLIO_HEAT_WARNING"
+            constraining_factor = "KILL_SWITCH_HALTED"
+            factors.append("Emergency Kill Switch is HALTED (0 trades allowed)")
+        else:
+            # 1. Portfolio Heat constraint
+            if portfolio_heat_status == "CRITICAL":
+                d_limit = min(d_limit, max(1, int(u_max * 0.2)))
+                constraining_factor = "PORTFOLIO_HEAT_CRITICAL"
+                factors.append("Portfolio heat critical (capped at 20% capacity)")
+            elif portfolio_heat_status == "HIGH":
+                d_limit = min(d_limit, max(1, int(u_max * 0.4)))
+                constraining_factor = "PORTFOLIO_HEAT_HIGH"
+                factors.append("Portfolio heat high (40% capacity)")
+            elif portfolio_heat_status == "WARNING":
+                d_limit = min(d_limit, max(2, int(u_max * 0.7)))
+                if constraining_factor == "USER_HARD_CEILING": constraining_factor = "PORTFOLIO_HEAT_WARNING"
 
-        # 2. Drawdown constraint
-        if drawdown_pct >= 10.0:
-            d_limit = 0
-            constraining_factor = "MAX_DRAWDOWN_BREACH"
-            factors.append("Drawdown >= 10% (Trading Halted)")
-        elif drawdown_pct >= 5.0:
-            d_limit = min(d_limit, max(1, int(u_max * 0.5)))
-            if constraining_factor == "USER_HARD_CEILING": constraining_factor = "DRAWDOWN_ELEVATED"
-            factors.append("Drawdown >= 5% (50% capacity)")
+            # 2. Drawdown constraint
+            if drawdown_pct >= 15.0:
+                d_limit = 0
+                constraining_factor = "MAX_DRAWDOWN_BREACH"
+                factors.append("Drawdown >= 15% (Trading Halted)")
+            elif drawdown_pct >= 5.0:
+                d_limit = min(d_limit, max(1, int(u_max * 0.5)))
+                if constraining_factor == "USER_HARD_CEILING": constraining_factor = "DRAWDOWN_ELEVATED"
+                factors.append("Drawdown >= 5% (50% capacity)")
 
-        # 3. High Correlation constraint
-        if correlation_risk_score > 0.70:
-            d_limit = min(d_limit, max(2, int(u_max * 0.6)))
-            if constraining_factor == "USER_HARD_CEILING": constraining_factor = "CORRELATION_HIGH"
-            factors.append("Correlation risk high (>0.70)")
+            # 3. High Correlation constraint
+            if correlation_risk_score > 0.70:
+                d_limit = min(d_limit, max(2, int(u_max * 0.6)))
+                if constraining_factor == "USER_HARD_CEILING": constraining_factor = "CORRELATION_HIGH"
+                factors.append("Correlation risk high (>0.70)")
 
-        # 4. Volatility Regime constraint
-        if volatility_regime == "EXTREME":
-            d_limit = min(d_limit, max(1, int(u_max * 0.3)))
-            if constraining_factor == "USER_HARD_CEILING": constraining_factor = "VOLATILITY_EXTREME"
-            factors.append("Volatility extreme")
+            # 4. Volatility Regime constraint
+            if volatility_regime == "EXTREME":
+                d_limit = min(d_limit, max(1, int(u_max * 0.3)))
+                if constraining_factor == "USER_HARD_CEILING": constraining_factor = "VOLATILITY_EXTREME"
+                factors.append("Volatility extreme")
 
-        # 5. Daily Loss Budget constraint
-        if daily_loss_used_pct >= max_daily_loss_pct:
-            d_limit = 0
-            constraining_factor = "DAILY_LOSS_EXHAUSTED"
-            factors.append("Daily loss budget exhausted")
+            # 5. Daily Loss Budget constraint
+            if daily_loss_used_pct >= max_daily_loss_pct and max_daily_loss_pct > 0:
+                d_limit = 0
+                constraining_factor = "DAILY_LOSS_EXHAUSTED"
+                factors.append("Daily loss budget exhausted")
 
-        # CRITICAL SAFETY RULE: Never exceed user hard ceiling!
+        # CRITICAL SAFETY RULE: Effective limit = min(user_max_concurrent_trades, dynamic_limit)
         effective_limit = min(u_max, d_limit)
         available_slots = max(0, effective_limit - currently_open_positions)
         can_open = available_slots > 0 and effective_limit > 0

@@ -100,7 +100,14 @@ export default function PortfolioRiskDashboard() {
   }
 
   const tradeLimit = riskData?.metadata?.trade_limit || {};
-  const isHalted = killSwitch?.state === "HALTED";
+  const isHalted = killSwitch?.state === "HALTED" || riskData?.overall_status === "HALTED";
+
+  const configuredMax = (riskData?.configured_max_positions && riskData.configured_max_positions > 0) ? riskData.configured_max_positions : (tradeLimit?.configured_max_positions || 10);
+  const dynamicMax = (riskData?.dynamic_max_positions && riskData.dynamic_max_positions > 0) ? riskData.dynamic_max_positions : (tradeLimit?.dynamic_risk_limit || 10);
+  const effectiveMax = isHalted ? 0 : ((riskData?.effective_max_positions && riskData.effective_max_positions > 0) ? riskData.effective_max_positions : (tradeLimit?.effective_max_positions || 10));
+  const openPositions = riskData?.open_positions ?? 0;
+  const availableSlots = isHalted ? 0 : (tradeLimit?.available_trade_slots ?? Math.max(0, effectiveMax - openPositions));
+
 
   return (
     <div className="space-y-6 text-slate-100 font-sans">
@@ -206,11 +213,11 @@ export default function PortfolioRiskDashboard() {
             <Layers className="w-5 h-5 text-emerald-400" />
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
-            <span className="text-3xl font-mono font-bold text-emerald-400">{riskData?.effective_max_positions ?? 0}</span>
-            <span className="text-xs text-slate-400">/ {riskData?.configured_max_positions ?? 0} Max</span>
+            <span className="text-3xl font-mono font-bold text-emerald-400">{effectiveMax}</span>
+            <span className="text-xs text-slate-400">/ {configuredMax} Max</span>
           </div>
           <p className="text-xs text-slate-400 mt-2">
-            Available Slots: <span className="font-mono text-emerald-300 font-bold">{tradeLimit?.available_trade_slots ?? 0}</span>
+            Available Slots: <span className="font-mono text-emerald-300 font-bold">{availableSlots}</span>
           </p>
         </div>
       </div>
@@ -225,23 +232,24 @@ export default function PortfolioRiskDashboard() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-950/60 p-4 rounded-xl border border-slate-800/80 font-mono text-sm">
           <div>
             <div className="text-xs text-slate-400 font-sans">User Hard Ceiling</div>
-            <div className="text-lg font-bold text-slate-200">{riskData?.configured_max_positions ?? 0} Trades</div>
+            <div className="text-lg font-bold text-slate-200">{configuredMax} Trades</div>
           </div>
           <div>
             <div className="text-xs text-slate-400 font-sans">Dynamic Risk Limit</div>
-            <div className="text-lg font-bold text-cyan-400">{riskData?.dynamic_max_positions ?? 0} Trades</div>
+            <div className="text-lg font-bold text-cyan-400">{dynamicMax} Trades</div>
           </div>
           <div>
             <div className="text-xs text-slate-400 font-sans">Currently Open</div>
-            <div className="text-lg font-bold text-amber-400">{riskData?.open_positions ?? 0} Trades</div>
+            <div className="text-lg font-bold text-amber-400">{openPositions} Trades</div>
           </div>
           <div>
             <div className="text-xs text-slate-400 font-sans">Available Open Slots</div>
-            <div className="text-lg font-bold text-emerald-400">{tradeLimit?.available_trade_slots ?? 0} Slots</div>
+            <div className="text-lg font-bold text-emerald-400">{availableSlots} Slots</div>
           </div>
         </div>
 
-        {tradeLimit?.available_trade_slots === 0 && (
+        {availableSlots === 0 && (
+
           <div className="flex items-start space-x-3 bg-amber-500/10 border border-amber-500/30 p-4 rounded-xl text-amber-300 text-sm">
             <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
             <div>

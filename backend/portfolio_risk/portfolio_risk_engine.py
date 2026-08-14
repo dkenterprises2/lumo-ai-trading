@@ -94,6 +94,11 @@ class InstitutionalPortfolioRiskEngine:
 
         # 8. Dynamic Trade Limit Analysis
         configured_max = getattr(user_trader, 'max_open_positions', 10)
+        if hasattr(user_trader, 'risk_manager') and hasattr(user_trader.risk_manager, 'config'):
+            configured_max = getattr(user_trader.risk_manager.config, 'max_concurrent_trades', configured_max)
+        if not configured_max or configured_max <= 0:
+            configured_max = 10
+
         limit_res = self.limit_engine.compute_effective_limit(
             user_configured_max_positions=configured_max,
             currently_open_positions=len(positions),
@@ -102,8 +107,10 @@ class InstitutionalPortfolioRiskEngine:
             correlation_risk_score=corr_res["correlation_risk_score"],
             volatility_regime=vol_res.volatility_regime,
             daily_loss_used_pct=budget_res.used_today_pct,
-            max_daily_loss_pct=budget_res.daily_budget_pct
+            max_daily_loss_pct=budget_res.daily_budget_pct,
+            is_kill_switch_halted=(self.kill_switch.status == "HALTED")
         )
+
 
         # 9. Evaluate Kill Switch Triggers
         ks_status = self.kill_switch.evaluate_triggers(

@@ -81,14 +81,26 @@ async def get_dynamic_trade_limit(current_user: UserModel = Depends(get_current_
     """Fetch dynamic effective trade limit logic and slot availability."""
     user_trader = await trader_manager.get_trader_for_user(current_user.id)
     p_state = portfolio_risk_orchestrator.get_portfolio_risk_state(user_trader)
-    return p_state.metadata.get("trade_limit", {})
+    trade_limit = p_state.metadata.get("trade_limit", {})
+    if not trade_limit or not trade_limit.get("configured_max_positions") or trade_limit.get("configured_max_positions") <= 0:
+        cfg_max = getattr(user_trader.risk_manager.config, "max_concurrent_trades", getattr(user_trader, "max_open_positions", 10))
+        trade_limit["configured_max_positions"] = cfg_max if (cfg_max and cfg_max > 0) else 10
+        trade_limit["dynamic_risk_limit"] = trade_limit.get("dynamic_risk_limit") or 10
+        trade_limit["effective_max_positions"] = trade_limit.get("effective_max_positions") or 10
+        trade_limit["available_trade_slots"] = max(0, trade_limit["effective_max_positions"] - p_state.open_positions)
+    return trade_limit
 
 @router.get("/profile")
 async def get_risk_profile(current_user: UserModel = Depends(get_current_user)):
     """Fetch user risk profile parameters."""
     user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    prof = portfolio_risk_orchestrator.risk_engine.profile_manager.get_profile(user_trader.risk_mode)
-    return prof.to_dict()
+    risk_mode = getattr(user_trader, "risk_mode", "BALANCED")
+    prof = portfolio_risk_orchestrator.risk_engine.profile_manager.get_profile(risk_mode)
+    max_trades = getattr(user_trader.risk_manager.config, "max_concurrent_trades", getattr(user_trader, "max_open_positions", 10))
+    d_prof = prof.to_dict()
+    d_prof["max_concurrent_trades"] = max_trades if (max_trades and max_trades > 0) else 10
+    return d_prof
+
 
 @router.put("/profile")
 async def update_risk_profile(body: RiskProfileUpdateRequest, current_user: UserModel = Depends(get_current_user)):
