@@ -181,6 +181,7 @@ from backend.routers.portfolio_risk_router import router as portfolio_risk_route
 from backend.routers.execution_router import router as execution_router
 from backend.routers.system_router import router as system_router
 from backend.routers.shadow_router import router as shadow_router
+from backend.routers.arbitrage_router import router as arbitrage_router
 
 app.include_router(auth_router)
 app.include_router(preferences_router)
@@ -188,7 +189,9 @@ app.include_router(portfolio_risk_router)
 app.include_router(execution_router)
 app.include_router(system_router)
 app.include_router(shadow_router)
+app.include_router(arbitrage_router)
 app.include_router(exchange_router)
+
 
 
 
