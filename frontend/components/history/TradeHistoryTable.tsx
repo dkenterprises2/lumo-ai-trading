@@ -11,7 +11,17 @@ interface TradeHistoryTableProps {
 type SortField = "symbol" | "side" | "entry_price" | "amount" | "margin_usd" | "pnl_usd" | "pnl_pct" | "exit_time";
 type SortDirection = "asc" | "desc";
 
+export function formatCryptoPrice(price: number | undefined | null): string {
+  if (price === undefined || price === null || isNaN(price)) return "$0.00";
+  if (price === 0) return "$0.00";
+  if (price < 0.0001) return `$${price.toFixed(8)}`;
+  if (price < 0.01) return `$${price.toFixed(6)}`;
+  if (price < 1.0) return `$${price.toFixed(4)}`;
+  return `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export function TradeHistoryTable({ trades }: TradeHistoryTableProps) {
+
   const [sortField, setSortField] = useState<SortField>("exit_time");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
@@ -231,11 +241,12 @@ export function TradeHistoryTable({ trades }: TradeHistoryTableProps) {
                       </span>
                     </td>
                     <td className="py-3 px-3 font-mono">
-                      <div>${t.entry_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                      <div>{formatCryptoPrice(t.entry_price)}</div>
                       <div className="text-[10px] text-slate-400">
-                        {isClosed ? `$${t.exit_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}` : "-"}
+                        {isClosed ? formatCryptoPrice(t.exit_price) : "-"}
                       </div>
                     </td>
+
                     <td className="py-3 px-3 font-mono">{t.amount.toFixed(4)}</td>
                     <td className="py-3 px-3 font-mono font-bold text-blue-300">${t.margin_usd.toFixed(2)}</td>
                     <td className={`py-3 px-3 font-mono font-bold ${isProfit ? "text-emerald-400" : "text-rose-400"}`}>

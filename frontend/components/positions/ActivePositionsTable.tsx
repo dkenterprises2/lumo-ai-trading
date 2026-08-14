@@ -1,4 +1,5 @@
-"use client";
+import { formatCryptoPrice } from "@/components/history/TradeHistoryTable";
+
 
 import React, { useState, useMemo } from "react";
 import { Position } from "@/types/trading";
@@ -179,9 +180,10 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
                     </td>
                     <td className="py-3 px-3 font-mono text-slate-400">{pos.leverage}x</td>
                     <td className="py-3 px-3 font-mono">
-                      <div>${pos.entry_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-                      <div className="text-[10px] text-slate-400">${pos.current_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                      <div>{formatCryptoPrice(pos.entry_price)}</div>
+                      <div className="text-[10px] text-slate-400">{formatCryptoPrice(pos.current_price)}</div>
                     </td>
+
                     <td className="py-3 px-3 font-mono font-bold text-cyan-300">${pos.margin_usd.toFixed(2)}</td>
                     <td className={`py-3 px-3 font-mono font-bold ${isProfit ? "text-emerald-400" : "text-rose-400"}`}>
                       {formattedMoney} ({formattedPct})

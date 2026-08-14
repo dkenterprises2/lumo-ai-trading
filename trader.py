@@ -12,6 +12,19 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("trader")
 
 
+def round_price(val: float) -> float:
+    if not val or val <= 0:
+        return 0.0
+    if val < 0.0001:
+        return round(val, 8)
+    if val < 0.01:
+        return round(val, 6)
+    if val < 1.0:
+        return round(val, 4)
+    return round(val, 2)
+
+
+
 class TraderState(str, Enum):
     BOOTING = "BOOTING"
     RESTORING_DATABASE = "RESTORING_DATABASE"
@@ -626,9 +639,10 @@ class PaperTrader:
         )
 
         if side == "LONG":
-            liq_price = round(price * (1.0 - (1.0 / leverage) * 0.9), 4)
+            liq_price = round_price(price * (1.0 - (1.0 / leverage) * 0.9))
         else:
-            liq_price = round(price * (1.0 + (1.0 / leverage) * 0.9), 4)
+            liq_price = round_price(price * (1.0 + (1.0 / leverage) * 0.9))
+
 
         position = {
             "id": pos_id,
@@ -886,35 +900,36 @@ class PaperTrader:
                 if price > peak_price:
                     pos['highest_price'] = price
                     # Trail Stop Loss to lock in profits if price gained > 1.5%
-                    pnl_gain_pct = (price - entry_price) / entry_price * 100.0
+                    pnl_gain_pct = (price - entry_price) / entry_price * 100.0 if entry_price > 0 else 0.0
                     if pnl_gain_pct >= 1.5:
-                        trailed_sl = round(price * 0.985, 4)
+                        trailed_sl = round_price(price * 0.985)
                         if trailed_sl > pos.get('stop_loss_price', 0):
                             pos['stop_loss_price'] = trailed_sl
 
-                if price <= pos['stop_loss_price']:
-                    to_close.append((symbol, price, f"Stop-Loss Triggered (${pos['stop_loss_price']:.4f})"))
-                elif price >= pos['take_profit_price']:
-                    to_close.append((symbol, price, f"Take-Profit Triggered (${pos['take_profit_price']:.4f})"))
+                if pos.get('stop_loss_price') and price <= pos['stop_loss_price']:
+                    to_close.append((symbol, price, f"Stop-Loss Triggered (${pos['stop_loss_price']})"))
+                elif pos.get('take_profit_price') and price >= pos['take_profit_price']:
+                    to_close.append((symbol, price, f"Take-Profit Triggered (${pos['take_profit_price']})"))
                 elif pos.get('liquidation_price') and price <= pos['liquidation_price']:
-                    to_close.append((symbol, price, f"Liquidation Triggered (${pos['liquidation_price']:.4f})"))
+                    to_close.append((symbol, price, f"Liquidation Triggered (${pos['liquidation_price']})"))
             else: # SHORT
                 trough_price = pos.get('lowest_price', entry_price)
                 if price < trough_price:
                     pos['lowest_price'] = price
                     # Trail Stop Loss to lock in profits if price dropped > 1.5%
-                    pnl_gain_pct = (entry_price - price) / entry_price * 100.0
+                    pnl_gain_pct = (entry_price - price) / entry_price * 100.0 if entry_price > 0 else 0.0
                     if pnl_gain_pct >= 1.5:
-                        trailed_sl = round(price * 1.015, 4)
+                        trailed_sl = round_price(price * 1.015)
                         if pos.get('stop_loss_price') is None or trailed_sl < pos['stop_loss_price']:
                             pos['stop_loss_price'] = trailed_sl
 
-                if price >= pos['stop_loss_price']:
-                    to_close.append((symbol, price, f"Stop-Loss Triggered (${pos['stop_loss_price']:.4f})"))
-                elif price <= pos['take_profit_price']:
-                    to_close.append((symbol, price, f"Take-Profit Triggered (${pos['take_profit_price']:.4f})"))
+                if pos.get('stop_loss_price') and price >= pos['stop_loss_price']:
+                    to_close.append((symbol, price, f"Stop-Loss Triggered (${pos['stop_loss_price']})"))
+                elif pos.get('take_profit_price') and price <= pos['take_profit_price']:
+                    to_close.append((symbol, price, f"Take-Profit Triggered (${pos['take_profit_price']})"))
                 elif pos.get('liquidation_price') and price >= pos['liquidation_price']:
-                    to_close.append((symbol, price, f"Liquidation Triggered (${pos['liquidation_price']:.4f})"))
+                    to_close.append((symbol, price, f"Liquidation Triggered (${pos['liquidation_price']})"))
+
 
         for symbol, price, reason in to_close:
             self.close_position(symbol, price, reason=reason)
