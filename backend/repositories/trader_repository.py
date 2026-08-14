@@ -58,6 +58,14 @@ class TraderRepository:
                     portfolio = result.scalars().first()
 
                     if portfolio:
+                        import json
+                        allowed_syms = None
+                        if getattr(portfolio, "allowed_symbols_json", None):
+                            try:
+                                allowed_syms = json.loads(portfolio.allowed_symbols_json)
+                            except Exception:
+                                pass
+
                         data = {
                             "id": portfolio.id,
                             "user_id": portfolio.user_id,
@@ -69,7 +77,12 @@ class TraderRepository:
                             "active_strategy": portfolio.active_strategy,
                             "risk_mode": portfolio.risk_mode,
                             "default_allocation_usd": getattr(portfolio, "default_allocation_usd", 1000.0),
-                            "default_leverage": getattr(portfolio, "default_leverage", 1)
+                            "default_leverage": getattr(portfolio, "default_leverage", 1),
+                            "max_concurrent_trades": getattr(portfolio, "max_concurrent_trades", None),
+                            "max_capital_per_trade_pct": getattr(portfolio, "max_capital_per_trade_pct", None),
+                            "daily_loss_limit_pct": getattr(portfolio, "daily_loss_limit_pct", None),
+                            "symbol_cooldown_minutes": getattr(portfolio, "symbol_cooldown_minutes", None),
+                            "allowed_symbols": allowed_syms
                         }
                         logger.info(f"[DB_LOAD] Portfolio state loaded for user_id={user_id}: {data}")
                         return data
@@ -94,10 +107,17 @@ class TraderRepository:
         risk_mode: str,
         default_allocation_usd: float = 1000.0,
         default_leverage: int = 1,
+        max_concurrent_trades: Optional[int] = None,
+        max_capital_per_trade_pct: Optional[float] = None,
+        daily_loss_limit_pct: Optional[float] = None,
+        symbol_cooldown_minutes: Optional[int] = None,
+        allowed_symbols: Optional[List[str]] = None,
         user_id: Optional[int] = None
     ):
         """Persist portfolio balance and bot configuration for user_id to DB."""
-        logger.info(f"[DB_WRITE_PORTFOLIO] Attempting save_portfolio_state for user_id={user_id}: balance=${usdt_balance}, margin=${margin_used}, total=${total_value}, auto_bot_enabled={auto_bot_enabled}, default_alloc=${default_allocation_usd}, default_lev={default_leverage}x")
+        import json
+        allowed_json = json.dumps(allowed_symbols) if allowed_symbols else None
+        logger.info(f"[DB_WRITE_PORTFOLIO] Attempting save_portfolio_state for user_id={user_id}: balance=${usdt_balance}, margin=${margin_used}, total=${total_value}, auto_bot_enabled={auto_bot_enabled}, default_alloc=${default_allocation_usd}, default_lev={default_leverage}x, max_trades={max_concurrent_trades}")
         max_retries = 5
         for attempt in range(1, max_retries + 1):
             try:
@@ -106,8 +126,6 @@ class TraderRepository:
                         stmt = select(PortfolioModel).where(PortfolioModel.user_id == user_id)
                     else:
                         stmt = select(PortfolioModel).where(PortfolioModel.user_id.is_(None))
-
-
 
                     result = await session.execute(stmt)
                     portfolio = result.scalars().first()
@@ -122,7 +140,12 @@ class TraderRepository:
                             active_strategy=active_strategy,
                             risk_mode=risk_mode,
                             default_allocation_usd=default_allocation_usd,
-                            default_leverage=default_leverage
+                            default_leverage=default_leverage,
+                            max_concurrent_trades=max_concurrent_trades,
+                            max_capital_per_trade_pct=max_capital_per_trade_pct,
+                            daily_loss_limit_pct=daily_loss_limit_pct,
+                            symbol_cooldown_minutes=symbol_cooldown_minutes,
+                            allowed_symbols_json=allowed_json
                         )
                         session.add(portfolio)
                     else:
@@ -137,10 +160,21 @@ class TraderRepository:
                             portfolio.default_allocation_usd = default_allocation_usd
                         if hasattr(portfolio, "default_leverage"):
                             portfolio.default_leverage = default_leverage
+                        if hasattr(portfolio, "max_concurrent_trades") and max_concurrent_trades is not None:
+                            portfolio.max_concurrent_trades = max_concurrent_trades
+                        if hasattr(portfolio, "max_capital_per_trade_pct") and max_capital_per_trade_pct is not None:
+                            portfolio.max_capital_per_trade_pct = max_capital_per_trade_pct
+                        if hasattr(portfolio, "daily_loss_limit_pct") and daily_loss_limit_pct is not None:
+                            portfolio.daily_loss_limit_pct = daily_loss_limit_pct
+                        if hasattr(portfolio, "symbol_cooldown_minutes") and symbol_cooldown_minutes is not None:
+                            portfolio.symbol_cooldown_minutes = symbol_cooldown_minutes
+                        if hasattr(portfolio, "allowed_symbols_json") and allowed_json is not None:
+                            portfolio.allowed_symbols_json = allowed_json
 
                     await session.commit()
                     logger.info(f"[DB_COMMIT_PORTFOLIO] Portfolio state committed successfully for user_id={user_id}.")
                     return
+
 
             except Exception as e:
                 logger.warning(f"[DB_WRITE_PORTFOLIO_RETRY {attempt}/{max_retries}] Exception saving portfolio state for user_id={user_id}: {e}")

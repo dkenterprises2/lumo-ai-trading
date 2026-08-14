@@ -160,9 +160,32 @@ class PaperTrader:
             self.risk_mode = portfolio_state["risk_mode"]
             self.default_allocation_usd = portfolio_state.get("default_allocation_usd", 1000.0)
             self.default_leverage = portfolio_state.get("default_leverage", 1)
-            logger.info(f"[RESTORE_PORTFOLIO] Restored portfolio state for user_id={self.user_id}: ${self.usdt_balance:.2f} USDT | Strategy: {self.active_strategy} | Alloc: ${self.default_allocation_usd} | Leverage: {self.default_leverage}x")
+
+            if portfolio_state.get("max_concurrent_trades"):
+                self.max_open_positions = portfolio_state["max_concurrent_trades"]
+                if hasattr(self, "risk_manager") and hasattr(self.risk_manager, "config"):
+                    self.risk_manager.config.max_concurrent_trades = portfolio_state["max_concurrent_trades"]
+                    self.risk_manager.config.max_exposure_ratio = max(50.0, float(portfolio_state["max_concurrent_trades"] * 2.0))
+                    self.risk_manager.config.correlation_group_limit = portfolio_state["max_concurrent_trades"]
+
+            if portfolio_state.get("max_capital_per_trade_pct"):
+                self.max_capital_per_trade_pct = portfolio_state["max_capital_per_trade_pct"]
+
+            if portfolio_state.get("daily_loss_limit_pct"):
+                if hasattr(self, "risk_manager") and hasattr(self.risk_manager, "config"):
+                    self.risk_manager.config.max_daily_loss_pct = portfolio_state["daily_loss_limit_pct"]
+                    self.risk_manager.config.max_daily_loss_usd = (portfolio_state["daily_loss_limit_pct"] / 100.0) * self.initial_balance
+
+            if portfolio_state.get("symbol_cooldown_minutes") is not None:
+                self.symbol_cooldown_minutes = portfolio_state["symbol_cooldown_minutes"]
+
+            if portfolio_state.get("allowed_symbols"):
+                self.allowed_symbols = portfolio_state["allowed_symbols"]
+
+            logger.info(f"[RESTORE_PORTFOLIO] Restored portfolio state & preferences for user_id={self.user_id}: ${self.usdt_balance:.2f} USDT | Strategy: {self.active_strategy} | MaxTrades: {self.max_open_positions} | Alloc: ${self.default_allocation_usd} | Leverage: {self.default_leverage}x")
         else:
             logger.info(f"[RESTORE_PORTFOLIO] No portfolio state found in DB for user_id={self.user_id}, using defaults.")
+
 
         # 2. Restore Open Positions (will raise RuntimeError on retry exhaustion)
         db_positions = await self.repo.load_open_positions(user_id=self.user_id)
@@ -335,8 +358,13 @@ class PaperTrader:
         await self.save_portfolio_async()
 
     async def save_portfolio_async(self):
-
         """Awaited serialized save of portfolio state to DB."""
+        max_trades = getattr(self.risk_manager.config, "max_concurrent_trades", self.max_open_positions)
+        max_cap_pct = getattr(self, "max_capital_per_trade_pct", 10.0)
+        daily_loss_pct = getattr(self.risk_manager.config, "max_daily_loss_pct", 5.0)
+        cooldown_mins = getattr(self, "symbol_cooldown_minutes", 10)
+        allowed_syms = getattr(self, "allowed_symbols", None)
+
         await self.repo.save_portfolio_state(
             usdt_balance=self.usdt_balance,
             initial_balance=self.initial_balance,
@@ -347,8 +375,14 @@ class PaperTrader:
             risk_mode=self.risk_mode,
             default_allocation_usd=self.default_allocation_usd,
             default_leverage=self.default_leverage,
+            max_concurrent_trades=max_trades,
+            max_capital_per_trade_pct=max_cap_pct,
+            daily_loss_limit_pct=daily_loss_pct,
+            symbol_cooldown_minutes=cooldown_mins,
+            allowed_symbols=allowed_syms,
             user_id=self.user_id
         )
+
 
 
     async def save_position_async(self, pos: Dict[str, Any]):

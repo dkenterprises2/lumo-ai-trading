@@ -83,7 +83,13 @@ class PortfolioModel(Base):
     risk_mode: Mapped[str] = mapped_column(String(32), default="Moderate")
     default_allocation_usd: Mapped[float] = mapped_column(Float, default=1000.0)
     default_leverage: Mapped[int] = mapped_column(Integer, default=1)
+    max_concurrent_trades: Mapped[Optional[int]] = mapped_column(Integer, default=10, nullable=True)
+    max_capital_per_trade_pct: Mapped[Optional[float]] = mapped_column(Float, default=10.0, nullable=True)
+    daily_loss_limit_pct: Mapped[Optional[float]] = mapped_column(Float, default=5.0, nullable=True)
+    symbol_cooldown_minutes: Mapped[Optional[int]] = mapped_column(Integer, default=10, nullable=True)
+    allowed_symbols_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 
 
 class PositionModel(Base):
