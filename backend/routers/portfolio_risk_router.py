@@ -166,6 +166,9 @@ async def activate_kill_switch(body: KillSwitchActionRequest, current_user: Opti
 @router.post("/kill-switch/recover")
 async def recover_kill_switch(body: KillSwitchActionRequest, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Manually recover Portfolio Kill Switch back to NORMAL state."""
+    user_trader = await _get_trader_helper(current_user)
+    if hasattr(user_trader, "peak_equity"):
+        user_trader.peak_equity = getattr(user_trader, "usdt_balance", 100000.0)
     user_name = current_user.name if current_user else "Trader User"
     status = portfolio_risk_orchestrator.risk_engine.kill_switch.recover(
         authorized_by=user_name,
