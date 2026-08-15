@@ -172,11 +172,11 @@ export default function ExecutionDashboard() {
           <div className="flex items-center space-x-3">
             <Zap className="w-8 h-8 text-cyan-400" />
             <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              Institutional OMS / EMS Execution Layer (Phase 35)
+              Institutional Order &amp; Execution Engine
             </h1>
           </div>
           <p className="text-slate-400 text-sm mt-1">
-            Smart Order Routing, Slippage Control, TWAP/VWAP/Iceberg Algorithms, and Multi-Exchange Telemetry.
+            Smart order routing, algorithmic execution, slippage control, and execution telemetry.
           </p>
         </div>
       </div>

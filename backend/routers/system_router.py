@@ -43,7 +43,6 @@ async def get_exchange_market_data_health(exchange: Optional[str] = "BINANCE", c
     health_dict = market_data_health.get_all_health()
     return {ex: v.to_dict() for ex, v in health_dict.items()}
 
-@router.post("/api/wallet/reset-paper-account")
 @router.post("/api/trader/reset")
 @router.post("/api/portfolio/reset")
 async def reset_paper_account_endpoint(current_user: UserModel = Depends(get_current_user)):
@@ -52,4 +51,10 @@ async def reset_paper_account_endpoint(current_user: UserModel = Depends(get_cur
     trader_inst = await trader_manager.get_trader_for_user(current_user.id)
     res = await trader_inst.reset_paper_account_async(default_balance=10000.0)
     return res
+
+@router.get("/api/system/resources")
+async def get_system_resources_endpoint(current_user: UserModel = Depends(get_current_user)):
+    """Fetch real-time CPU %, memory MB, asyncio task count, DB connections, and WS client telemetry."""
+    from backend.telemetry.resource_monitor import resource_monitor
+    return resource_monitor.get_current_resources()
 

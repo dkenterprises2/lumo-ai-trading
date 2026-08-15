@@ -151,7 +151,7 @@ export function ArbitrageDashboard() {
               <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
                 Cross-Exchange Arbitrage Intelligence
                 <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 font-medium">
-                  Phase 40 — Reality Engine
+                  Arbitrage Engine
                 </span>
               </h1>
               <p className="text-sm text-slate-400">

@@ -110,6 +110,9 @@ class AutonomousExecutionManager:
         self.state_machines: Dict[str, ExecutionStateMachine] = {}
         self.positions: Dict[str, ShadowPosition] = {}
 
+    def reset_state(self):
+        self._init_manager()
+
     def select_execution_algorithm(
         self,
         amount_usd: float,
@@ -160,7 +163,7 @@ class AutonomousExecutionManager:
 
         # 1. Validation & Freshness Check
         sm.transition_to(ExecutionState.VALIDATING, reason="Validating quote freshness and exchange connectivity")
-        quotes = self.collector.fetch_all_quotes(symbol)
+        quotes = self.collector.fetch_all_quotes(symbol, base_price=buy_price)
         q_buy = quotes.get(buy_ex)
         q_sell = quotes.get(sell_ex)
 
@@ -177,22 +180,7 @@ class AutonomousExecutionManager:
             self.metrics_tracker.record_opportunity(is_approved=False, blocked_by="GOVERNANCE")
             return {"status": "rejected", "reason": "Quote stale", "execution_id": exec_id}
 
-        # 2. Risk Check (Phase 34 Institutional Portfolio Risk Engine)
-        sm.transition_to(ExecutionState.RISK_CHECK, reason="Evaluating Phase 34 Portfolio Risk Gate")
-        risk_res = self.risk_engine.evaluate_trade_risk_gate(
-            user_trader=self.trader,
-            symbol=symbol,
-            side="BUY",
-            requested_allocation_usd=amount_usd
-        )
-
-        if not risk_res.get("passed", False):
-            reason = risk_res.get("decision", {}).get("explanation", "Portfolio risk gate blocked trade")
-            sm.transition_to(ExecutionState.RISK_BLOCKED, reason=reason)
-            self.metrics_tracker.record_opportunity(is_approved=False, blocked_by="RISK")
-            return {"status": "rejected", "reason": reason, "execution_id": exec_id, "risk_decision": risk_res}
-
-        # 3. Governance & Idempotency Check
+        # 2. Governance & Idempotency Check
         sm.transition_to(ExecutionState.GOVERNANCE_CHECK, reason="Evaluating Autonomous Governance & Idempotency Key")
         gov_res = self.governance_engine.validate_opportunity_governance(
             symbol=symbol,
@@ -207,6 +195,21 @@ class AutonomousExecutionManager:
             sm.transition_to(ExecutionState.GOVERNANCE_BLOCKED, reason=gov_res.reason)
             self.metrics_tracker.record_opportunity(is_approved=False, blocked_by="GOVERNANCE")
             return {"status": "rejected", "reason": gov_res.reason, "execution_id": exec_id, "governance_decision": gov_res.to_dict()}
+
+        # 3. Risk Check (Phase 34 Institutional Portfolio Risk Engine)
+        sm.transition_to(ExecutionState.RISK_CHECK, reason="Evaluating Phase 34 Portfolio Risk Gate")
+        risk_res = self.risk_engine.evaluate_trade_risk_gate(
+            user_trader=self.trader,
+            symbol=symbol,
+            side="BUY",
+            requested_allocation_usd=amount_usd
+        )
+
+        if not risk_res.get("passed", False):
+            reason = risk_res.get("decision", {}).get("explanation", "Portfolio risk gate blocked trade")
+            sm.transition_to(ExecutionState.RISK_BLOCKED, reason=reason)
+            self.metrics_tracker.record_opportunity(is_approved=False, blocked_by="RISK")
+            return {"status": "rejected", "reason": reason, "execution_id": exec_id, "risk_decision": risk_res}
 
         # 4. Approved & Automatic Algorithm Selection
         sm.transition_to(ExecutionState.APPROVED, reason="Passed all risk & governance checks")

@@ -2,7 +2,7 @@ import PortfolioRiskDashboard from "@/components/risk/PortfolioRiskDashboard";
 
 export const metadata = {
   title: "Portfolio Risk Intelligence | Lumo AI Trading Platform",
-  description: "Phase 34 Institutional Portfolio Intelligence & Risk Optimization Engine",
+  description: "Portfolio Risk & Safety Engine — Dynamic risk limits, portfolio heat, drawdown protection, and circuit breakers.",
 };
 
 export default function RiskPage() {

@@ -2,7 +2,7 @@ import ExecutionDashboard from "@/components/execution/ExecutionDashboard";
 
 export const metadata = {
   title: "Execution Management System (EMS) | Lumo AI Trading Platform",
-  description: "Phase 35 Institutional OMS / EMS Execution Layer & Smart Order Routing",
+  description: "Institutional Order & Execution Engine — Smart order routing, algorithmic execution, slippage control, and execution telemetry.",
 };
 
 export default function ExecutionPage() {

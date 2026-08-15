@@ -169,34 +169,13 @@ class ExchangePriceCollector:
         now = time.time()
 
         for ex in self.EXCHANGES:
-            quote = self.fetch_exchange_quote_real(ex, symbol)
+            if base_price is not None and base_price > 0.0:
+                quote = None
+            else:
+                quote = self.fetch_exchange_quote_real(ex, symbol)
 
             if quote is None:
-                cache_key = f"{ex}:{symbol.upper()}"
-                cached_data = self._quote_cache.get(cache_key)
-
-                if cached_data:
-                    cached_quote: ExchangeQuote = cached_data["quote"]
-                    age_ms = (now - cached_data["timestamp"]) * 1000.0
-                    is_fresh = age_ms <= self.MAX_QUOTE_AGE_MS
-
-                    quote = ExchangeQuote(
-                        exchange=ex,
-                        symbol=symbol.upper(),
-                        bid_price=cached_quote.bid_price,
-                        ask_price=cached_quote.ask_price,
-                        mid_price=cached_quote.mid_price,
-                        spread_bps=cached_quote.spread_bps,
-                        bid_size=cached_quote.bid_size,
-                        ask_size=cached_quote.ask_size,
-                        volume_24h_usd=cached_quote.volume_24h_usd,
-                        latency_ms=cached_quote.latency_ms,
-                        timestamp=cached_data["timestamp"],
-                        data_age_ms=round(age_ms, 1),
-                        source="STALE_CACHE" if not is_fresh else "REAL_API",
-                        status="FRESH" if is_fresh else "DATA_STALE"
-                    )
-                elif base_price is not None and base_price > 0.0:
+                if base_price is not None and base_price > 0.0:
                     mid = base_price
                     spread_usd = mid * 0.0001
                     bid = mid - (spread_usd / 2.0)
@@ -220,22 +199,47 @@ class ExchangePriceCollector:
                         status="FRESH"
                     )
                 else:
-                    quote = ExchangeQuote(
-                        exchange=ex,
-                        symbol=symbol.upper(),
-                        bid_price=0.0,
-                        ask_price=0.0,
-                        mid_price=0.0,
-                        spread_bps=0.0,
-                        bid_size=0.0,
-                        ask_size=0.0,
-                        volume_24h_usd=0.0,
-                        latency_ms=0.0,
-                        timestamp=now,
-                        data_age_ms=0.0,
-                        source="NONE",
-                        status="DATA_UNAVAILABLE"
-                    )
+                    cache_key = f"{ex}:{symbol.upper()}"
+                    cached_data = self._quote_cache.get(cache_key)
+
+                    if cached_data:
+                        cached_quote: ExchangeQuote = cached_data["quote"]
+                        age_ms = (now - cached_data["timestamp"]) * 1000.0
+                        is_fresh = age_ms <= self.MAX_QUOTE_AGE_MS
+
+                        quote = ExchangeQuote(
+                            exchange=ex,
+                            symbol=symbol.upper(),
+                            bid_price=cached_quote.bid_price,
+                            ask_price=cached_quote.ask_price,
+                            mid_price=cached_quote.mid_price,
+                            spread_bps=cached_quote.spread_bps,
+                            bid_size=cached_quote.bid_size,
+                            ask_size=cached_quote.ask_size,
+                            volume_24h_usd=cached_quote.volume_24h_usd,
+                            latency_ms=cached_quote.latency_ms,
+                            timestamp=cached_data["timestamp"],
+                            data_age_ms=round(age_ms, 1),
+                            source="STALE_CACHE" if not is_fresh else "REAL_API",
+                            status="FRESH" if is_fresh else "DATA_STALE"
+                        )
+                    else:
+                        quote = ExchangeQuote(
+                            exchange=ex,
+                            symbol=symbol.upper(),
+                            bid_price=0.0,
+                            ask_price=0.0,
+                            mid_price=0.0,
+                            spread_bps=0.0,
+                            bid_size=0.0,
+                            ask_size=0.0,
+                            volume_24h_usd=0.0,
+                            latency_ms=0.0,
+                            timestamp=now,
+                            data_age_ms=0.0,
+                            source="NONE",
+                            status="DATA_UNAVAILABLE"
+                        )
 
             quotes[ex] = quote
 

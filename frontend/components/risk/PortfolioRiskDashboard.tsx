@@ -111,11 +111,11 @@ export default function PortfolioRiskDashboard() {
           <div className="flex items-center space-x-3">
             <ShieldAlert className="w-8 h-8 text-cyan-400" />
             <h1 className="text-2xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-              Institutional Risk Engine 2.0 (Phase 34)
+              Portfolio Risk &amp; Safety Engine
             </h1>
           </div>
           <p className="text-slate-400 text-sm mt-1">
-            Dynamic correlation control, drawdown adaptation, portfolio heat metrics, and automated circuit breakers.
+            Dynamic risk limits, portfolio heat, drawdown protection, and circuit breakers.
           </p>
         </div>
 

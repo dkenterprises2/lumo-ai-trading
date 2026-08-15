@@ -78,7 +78,7 @@ export const ShadowTradingDashboard: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-white tracking-tight">Phase 36 — Shadow Trading &amp; Market Replay</h1>
+              <h1 className="text-2xl font-bold text-white tracking-tight">Shadow Trading &amp; Execution Simulation</h1>
               <span className="px-3 py-1 bg-purple-500/20 text-purple-300 border border-purple-500/40 text-xs font-bold rounded-full uppercase tracking-wider">
                 SHADOW MODE (ZERO LIVE RISK)
               </span>
