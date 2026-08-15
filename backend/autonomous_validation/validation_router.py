@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Dict, List, Any, Optional
 
-from backend.auth.security import get_current_user
+from backend.auth.security import get_optional_current_user
 from backend.models.domain import UserModel
 from .scenario_factory import ScenarioFactory
 from .opportunity_injector import OpportunityInjector
@@ -13,7 +13,7 @@ router = APIRouter(prefix="/api/autonomous-validation", tags=["Phase 42 — Auto
 _run_history: List[Dict[str, Any]] = []
 
 @router.get("/status")
-async def get_validation_status(current_user: UserModel = Depends(get_current_user)):
+async def get_validation_status(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch status of autonomous validation framework."""
     return {
         "status": "success",
@@ -24,7 +24,7 @@ async def get_validation_status(current_user: UserModel = Depends(get_current_us
     }
 
 @router.get("/scenarios")
-async def get_validation_scenarios(current_user: UserModel = Depends(get_current_user)):
+async def get_validation_scenarios(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """List all available deterministic market replay validation scenarios (A through J)."""
     scenarios = ScenarioFactory.get_all_scenarios()
     return {
@@ -33,7 +33,7 @@ async def get_validation_scenarios(current_user: UserModel = Depends(get_current
     }
 
 @router.post("/run/{scenario_id}")
-async def run_validation_scenario(scenario_id: str, current_user: UserModel = Depends(get_current_user)):
+async def run_validation_scenario(scenario_id: str, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Run a single deterministic market replay scenario and return state transition audit trail."""
     sc = ScenarioFactory.get_scenario_by_code(scenario_id)
     if not sc:
@@ -50,7 +50,7 @@ async def run_validation_scenario(scenario_id: str, current_user: UserModel = De
     }
 
 @router.post("/run-all")
-async def run_all_scenarios(current_user: UserModel = Depends(get_current_user)):
+async def run_all_scenarios(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Run all 10 deterministic market replay scenarios (A through J) and compile validation report."""
     scenarios = ScenarioFactory.get_all_scenarios()
     injector = OpportunityInjector()
@@ -67,7 +67,7 @@ async def run_all_scenarios(current_user: UserModel = Depends(get_current_user))
     }
 
 @router.get("/runs")
-async def get_validation_runs(current_user: UserModel = Depends(get_current_user)):
+async def get_validation_runs(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch history of all executed scenario validation runs."""
     return {
         "status": "success",
@@ -75,7 +75,7 @@ async def get_validation_runs(current_user: UserModel = Depends(get_current_user
     }
 
 @router.get("/report")
-async def get_validation_report(current_user: UserModel = Depends(get_current_user)):
+async def get_validation_report(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Compile and return master autonomous shadow validation report."""
     scenarios = ScenarioFactory.get_all_scenarios()
     injector = OpportunityInjector()
@@ -87,7 +87,7 @@ async def get_validation_report(current_user: UserModel = Depends(get_current_us
     }
 
 @router.get("/lifecycle/{execution_id}")
-async def get_lifecycle_audit(execution_id: str, current_user: UserModel = Depends(get_current_user)):
+async def get_lifecycle_audit(execution_id: str, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch complete microsecond state machine transition timeline for a specific execution ID."""
     matching = [r for r in _run_history if r.get("execution_id") == execution_id]
     if not matching:

@@ -27,12 +27,25 @@ import {
 import { apiFetch } from '@/services/api';
 import { ExecutionTimeline, StateTransition } from '@/components/execution/ExecutionTimeline';
 
+const DEFAULT_SCENARIOS = [
+  { code: 'SCENARIO_A_PROFITABLE_ARBITRAGE', scenario_id: 'SCENARIO_A', title: 'Scenario A — Profitable Cross-Exchange Arbitrage', category: 'PROFITABLE' },
+  { code: 'SCENARIO_B_UNPROFITABLE_ARBITRAGE', scenario_id: 'SCENARIO_B', title: 'Scenario B — Unprofitable Negative Spread', category: 'UNPROFITABLE' },
+  { code: 'SCENARIO_C_STALE_QUOTE', scenario_id: 'SCENARIO_C', title: 'Scenario C — Stale Price Quote (>2000ms)', category: 'STALE' },
+  { code: 'SCENARIO_D_RISK_REJECTION', scenario_id: 'SCENARIO_D', title: 'Scenario D — Phase 34 Risk Gate Rejection', category: 'RISK_REJECTED' },
+  { code: 'SCENARIO_E_GOVERNANCE_REJECTION', scenario_id: 'SCENARIO_E', title: 'Scenario E — Idempotency / Governance Rejection', category: 'GOVERNANCE' },
+  { code: 'SCENARIO_F_KILL_SWITCH_HALTED', scenario_id: 'SCENARIO_F', title: 'Scenario F — Kill-Switch Circuit Breaker Halted', category: 'HALTED' },
+  { code: 'SCENARIO_G_POSITION_EXIT', scenario_id: 'SCENARIO_G', title: 'Scenario G — Shadow Position Exit Cycle', category: 'EXIT' },
+  { code: 'SCENARIO_H_NET_EDGE_DECAY', scenario_id: 'SCENARIO_H', title: 'Scenario H — Fee & Slippage Friction Decay', category: 'FRICTION' },
+  { code: 'SCENARIO_I_LIQUIDITY_COLLAPSE', scenario_id: 'SCENARIO_I', title: 'Scenario I — Orderbook Depth Collapse', category: 'LIQUIDITY' },
+  { code: 'SCENARIO_J_EXCHANGE_DEGRADATION', scenario_id: 'SCENARIO_J', title: 'Scenario J — Exchange Health Degradation', category: 'HEALTH' }
+];
+
 export function AutonomousDashboard() {
   const [engineStatus, setEngineStatus] = useState<any>(null);
   const [metrics, setMetrics] = useState<any>(null);
   const [executions, setExecutions] = useState<any[]>([]);
-  const [scenarios, setScenarios] = useState<any[]>([]);
-  const [selectedScenario, setSelectedScenario] = useState<string>('SCENARIO_A');
+  const [scenarios, setScenarios] = useState<any[]>(DEFAULT_SCENARIOS);
+  const [selectedScenario, setSelectedScenario] = useState<string>('SCENARIO_A_PROFITABLE_ARBITRAGE');
   const [validationReport, setValidationReport] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
@@ -63,7 +76,9 @@ export function AutonomousDashboard() {
       }
       if (scenariosRes.ok) {
         const d = await scenariosRes.json();
-        setScenarios(d.scenarios || []);
+        if (d.scenarios && d.scenarios.length > 0) {
+          setScenarios(d.scenarios);
+        }
       }
       if (reportRes.ok) {
         const d = await reportRes.json();
