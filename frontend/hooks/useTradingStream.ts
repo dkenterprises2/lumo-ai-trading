@@ -84,7 +84,7 @@ export function useTradingStream(selectedSymbol: string = "BTC/USDT") {
       };
 
       ws.onerror = (e) => {
-        console.error("WS ERROR", e);
+        console.warn("WS connection error (retrying backend):", e?.type || "connection error");
         if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
       };
 

@@ -37,7 +37,7 @@ class MarketDataEngine:
             self.exchange = ccxt.binance({
                 'enableRateLimit': True,
                 'options': {'defaultType': 'spot'},
-                'timeout': 1000  # 1s max timeout
+                'timeout': 3000  # 3s max timeout for exchangeInfo & ticker calls
             })
         except Exception as e:
             logger.warning(f"Failed to initialize CCXT exchange: {e}")
@@ -93,7 +93,10 @@ class MarketDataEngine:
         try:
             from config import settings
             db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-            conn = sqlite3.connect(db_file)
+            conn = sqlite3.connect(db_file, timeout=30.0)
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA busy_timeout=30000;")
+            conn.execute("PRAGMA synchronous=NORMAL;")
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS market_prices (
@@ -135,35 +138,49 @@ class MarketDataEngine:
                         break
 
                 if items:
-                    try:
-                        conn = sqlite3.connect(db_file, timeout=10.0)
-                        cursor = conn.cursor()
-                        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-                        batch_data = [(sym, float(p), str(src), now_str) for (sym, p, src) in items]
+                    written_successfully = False
+                    for attempt in range(1, 4):
+                        try:
+                            conn = sqlite3.connect(db_file, timeout=30.0)
+                            conn.execute("PRAGMA journal_mode=WAL;")
+                            conn.execute("PRAGMA busy_timeout=30000;")
+                            conn.execute("PRAGMA synchronous=NORMAL;")
+                            cursor = conn.cursor()
+                            now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+                            batch_data = [(sym, float(p), str(src), now_str) for (sym, p, src) in items]
 
-                        cursor.executemany("""
-                            INSERT INTO market_prices (symbol, price, source, updated_at)
-                            VALUES (?, ?, ?, ?)
-                            ON CONFLICT(symbol) DO UPDATE SET
-                                price=excluded.price,
-                                source=excluded.source,
-                                updated_at=excluded.updated_at
-                        """, batch_data)
-                        conn.commit()
-                        conn.close()
+                            cursor.executemany("""
+                                INSERT INTO market_prices (symbol, price, source, updated_at)
+                                VALUES (?, ?, ?, ?)
+                                ON CONFLICT(symbol) DO UPDATE SET
+                                    price=excluded.price,
+                                    source=excluded.source,
+                                    updated_at=excluded.updated_at
+                            """, batch_data)
+                            conn.commit()
+                            conn.close()
 
-                        with self._lock:
-                            self.total_writes += len(items)
-                    except Exception as db_err:
+                            with self._lock:
+                                self.total_writes += len(items)
+                            written_successfully = True
+                            break
+                        except sqlite3.OperationalError as locked_err:
+                            if "locked" in str(locked_err).lower() and attempt < 3:
+                                time.sleep(0.2 * attempt)
+                            else:
+                                raise locked_err
+                        except Exception as db_err:
+                            raise db_err
+
+                    if not written_successfully:
                         with self._lock:
                             self.failed_writes += len(items)
-                        logger.error(f"[DB_WORKER_ERROR] Batch persistence write failed: {db_err}")
-                    finally:
-                        for _ in range(len(items)):
-                            self._persist_queue.task_done()
+
+                    for _ in range(len(items)):
+                        self._persist_queue.task_done()
 
             except Exception as outer_e:
-                logger.error(f"[DB_WORKER_FATAL] Worker loop exception: {outer_e}")
+                logger.warning(f"[DB_WORKER_RETRY] Batch persistence write failed after retries: {outer_e}")
 
 
     def _persist_market_price(self, symbol: str, price: float, source: str):
@@ -299,33 +316,34 @@ class MarketDataEngine:
         binance_price: Optional[float] = None
         coingecko_price: Optional[float] = None
 
-        # 1. Primary: CCXT Binance
-        if self.binance_disabled and (now - self.last_binance_error) > 5.0:
-            self.binance_disabled = False
+        # 1. Primary: Direct Binance Public REST Ticker (Fast, non-blocking 50ms HTTP endpoint)
+        if not self.binance_disabled or (now - self.last_binance_error) > 5.0:
+            try:
+                sym_clean = symbol.replace("/", "")
+                resp = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={sym_clean}", timeout=(0.2, 0.5))
+                if resp.status_code == 200:
+                    raw_p = float(resp.json().get("price", 0))
+                    if is_valid_price(raw_p):
+                        binance_price = raw_p
+                        self.binance_disabled = False
+                else:
+                    self.binance_disabled = True
+                    self.last_binance_error = now
+            except Exception:
+                self.binance_disabled = True
+                self.last_binance_error = now
 
-        if self.exchange and not self.binance_disabled:
+        # Fallback to CCXT Binance if Direct REST was empty
+        if not binance_price and self.exchange and not self.binance_disabled:
             try:
                 ticker = self.exchange.fetch_ticker(symbol)
                 raw_p = float(ticker['last'])
                 if is_valid_price(raw_p):
                     binance_price = raw_p
             except Exception as e:
-                logger.warning(f"[CIRCUIT_BREAKER] Binance CCXT fetch failed for {symbol}: {e}. Retrying in 5s.")
+                logger.debug(f"[MARKET_DATA_DEBUG] Binance CCXT fetch for {symbol}: {e}")
                 self.binance_disabled = True
                 self.last_binance_error = now
-
-        # Direct Binance Public REST Fallback if CCXT failed
-        if not binance_price:
-            try:
-                sym_clean = symbol.replace("/", "")
-                resp = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={sym_clean}", timeout=(0.5, 1.0))
-                if resp.status_code == 200:
-                    raw_p = float(resp.json().get("price", 0))
-                    if is_valid_price(raw_p):
-                        binance_price = raw_p
-                        self.binance_disabled = False
-            except Exception:
-                pass
 
         # 2. Secondary: CoinGecko REST
         coin_id, default_price = self.emergency_baselines.get(symbol, ("bitcoin", 65000.0))
