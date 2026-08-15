@@ -160,8 +160,15 @@ class InstitutionalRiskManager:
                 logger.info(f"[POSITION_SCALING] Moderate Drawdown ({drawdown_pct:.1f}%). Scaled allocation down 25% to ${adjusted_alloc:.2f}.")
 
         # RULE 9: Dynamic ATR Stop Loss & Take Profit Computation
-        computed_sl = stop_loss_price
-        computed_tp = take_profit_price
+        computed_sl = round_price(stop_loss_price) if stop_loss_price else 0.0
+        computed_tp = round_price(take_profit_price) if take_profit_price else 0.0
+
+        if side.upper() == "SHORT":
+            if computed_sl > 0 and (computed_sl <= price or computed_sl > price * 1.15):
+                computed_sl = round_price(price * 1.025)
+        else:
+            if computed_sl > 0 and (computed_sl >= price or computed_sl < price * 0.50):
+                computed_sl = round_price(price * 0.975)
 
         if not computed_sl or computed_sl == 0.0 or not computed_tp or computed_tp == 0.0:
             sl_dist = atr * self.config.sl_atr_multiplier
@@ -172,6 +179,7 @@ class InstitutionalRiskManager:
             else:
                 computed_sl = round_price(price + sl_dist)
                 computed_tp = round_price(price - tp_dist)
+
 
 
         # Ensure Risk Per Trade Cap (% of portfolio)

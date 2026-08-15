@@ -14,7 +14,7 @@ import {
   Power,
   RefreshCw
 } from "lucide-react";
-import { API_BASE_URL } from "@/lib/config";
+import { apiFetch } from "@/services/api";
 
 interface RiskState {
   equity: number;
@@ -40,23 +40,22 @@ export default function PortfolioRiskDashboard() {
   const [riskData, setRiskData] = useState<RiskState | null>(null);
   const [killSwitch, setKillSwitch] = useState<any>(null);
   const [recommendations, setRecommendations] = useState<any[]>([]);
+  const [explainability, setExplainability] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchRiskMetrics = async () => {
     try {
-      const token = localStorage.getItem("access_token");
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const [resPortfolio, resKs, resRecs] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/risk/portfolio`, { headers }),
-        fetch(`${API_BASE_URL}/api/risk/kill-switch`, { headers }),
-        fetch(`${API_BASE_URL}/api/risk/recommendations`, { headers })
+      const [resPortfolio, resKs, resRecs, resExp] = await Promise.all([
+        apiFetch("/api/risk/portfolio"),
+        apiFetch("/api/risk/kill-switch"),
+        apiFetch("/api/risk/recommendations"),
+        apiFetch("/api/risk/explainability")
       ]);
-
 
       if (resPortfolio.ok) setRiskData(await resPortfolio.json());
       if (resKs.ok) setKillSwitch(await resKs.json());
       if (resRecs.ok) setRecommendations(await resRecs.json());
+      if (resExp.ok) setExplainability(await resExp.json());
     } catch (e) {
       console.error("Failed to fetch risk dashboard data", e);
     } finally {
@@ -72,14 +71,8 @@ export default function PortfolioRiskDashboard() {
 
   const handleToggleKillSwitch = async (action: "activate" | "recover") => {
     try {
-      const token = localStorage.getItem("access_token");
-      const res = await fetch(`${API_BASE_URL}/api/risk/kill-switch/${action}`, {
-
+      const res = await apiFetch(`/api/risk/kill-switch/${action}`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
         body: JSON.stringify({ reason: `User manual ${action} from dashboard` })
       });
       if (res.ok) {
@@ -107,7 +100,8 @@ export default function PortfolioRiskDashboard() {
   const effectiveMax = isHalted ? 0 : ((riskData?.effective_max_positions && riskData.effective_max_positions > 0) ? riskData.effective_max_positions : (tradeLimit?.effective_max_positions || 10));
   const openPositions = riskData?.open_positions ?? 0;
   const availableSlots = isHalted ? 0 : (tradeLimit?.available_trade_slots ?? Math.max(0, effectiveMax - openPositions));
-
+  const hasPositions = openPositions > 0;
+  const scoreVal = riskData?.risk_score;
 
   return (
     <div className="space-y-6 text-slate-100 font-sans">
@@ -163,15 +157,26 @@ export default function PortfolioRiskDashboard() {
             <Activity className="w-5 h-5 text-cyan-400" />
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
-            <span className="text-3xl font-mono font-bold text-slate-100">{riskData?.risk_score ?? 0}</span>
-            <span className="text-xs text-slate-400">/ 100</span>
+            {hasPositions && scoreVal !== null && scoreVal !== undefined ? (
+              <>
+                <span className="text-3xl font-mono font-bold text-slate-100">{scoreVal}</span>
+                <span className="text-xs text-slate-400">/ 100</span>
+              </>
+            ) : (
+              <div>
+                <span className="text-3xl font-mono font-bold text-slate-400">N/A</span>
+                <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-sans">
+                  No active positions
+                </span>
+              </div>
+            )}
           </div>
           <div className="w-full bg-slate-800 h-2 rounded-full mt-3 overflow-hidden">
             <div 
               className={`h-full transition-all duration-500 ${
-                (riskData?.risk_score || 0) > 70 ? "bg-rose-500" : (riskData?.risk_score || 0) > 40 ? "bg-amber-500" : "bg-cyan-500"
+                !hasPositions ? "bg-slate-600" : (scoreVal || 0) > 70 ? "bg-rose-500" : (scoreVal || 0) > 40 ? "bg-amber-500" : "bg-cyan-500"
               }`}
-              style={{ width: `${Math.min(100, riskData?.risk_score || 0)}%` }}
+              style={{ width: `${hasPositions ? Math.min(100, scoreVal || 0) : 0}%` }}
             />
           </div>
         </div>
@@ -258,6 +263,38 @@ export default function PortfolioRiskDashboard() {
                 The Dynamic Risk Engine set a safe maximum limit of <span className="font-mono text-cyan-300 font-bold">{riskData?.effective_max_positions}</span> trades (constrained by <span className="font-mono text-amber-300 font-bold">{tradeLimit?.constraining_factor || "RISK_BUDGET"}</span>). You currently have {riskData?.open_positions} open positions.
               </p>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Risk Score Explainability: Why is my risk score X? */}
+      <div className="bg-slate-900/60 border border-slate-800 p-6 rounded-2xl backdrop-blur-md space-y-4">
+        <div className="flex items-center space-x-2">
+          <Activity className="w-5 h-5 text-cyan-400" />
+          <h2 className="text-lg font-bold text-slate-200">Why is my risk score {hasPositions && scoreVal !== null && scoreVal !== undefined ? scoreVal : "N/A"}?</h2>
+        </div>
+
+        <p className="text-xs text-slate-400">
+          {explainability?.risk_drivers?.explanation || "Risk score is calculated deterministically from active position heat, correlation, concentration, drawdown, volatility, budget, and leverage factors."}
+        </p>
+
+        {explainability?.risk_drivers?.factors ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            {Object.entries(explainability.risk_drivers.factors).map(([fKey, fVal]: [string, any]) => (
+              <div key={fKey} className="bg-slate-950/60 p-3 rounded-xl border border-slate-800 space-y-1 font-mono text-xs">
+                <div className="text-slate-400 font-sans uppercase text-[10px] tracking-wider font-bold">
+                  {fKey.replace('_', ' ')} (Weight: {(fVal.weight * 100).toFixed(0)}%)
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-300 font-bold">Score: {fVal.score}</span>
+                  <span className="text-cyan-400 font-bold">+{fVal.contribution} pts</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="text-xs text-slate-500 bg-slate-950/40 p-3 rounded-xl border border-slate-850">
+            Open positions to see live factor contributions to your portfolio risk score.
           </div>
         )}
       </div>

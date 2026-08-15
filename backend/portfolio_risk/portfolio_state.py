@@ -23,7 +23,7 @@ class PortfolioRiskState:
     leverage_used: float = 1.0
     recommended_max_leverage: float = 2.0
     risk_budget_remaining_pct: float = 5.0
-    risk_score: float = 0.0
+    risk_score: Optional[float] = None
     overall_status: str = "HEALTHY"
     timestamp: float = field(default_factory=time.time)
     metadata: Dict[str, Any] = field(default_factory=dict)

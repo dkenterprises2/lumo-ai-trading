@@ -51,7 +51,11 @@ async def get_funding_rates(symbol: Optional[str] = "BTC/USDT", current_user: Us
 @router.get("/basis")
 async def get_spot_perpetual_basis(symbol: Optional[str] = "BTC/USDT", current_user: UserModel = Depends(get_current_user)):
     """Fetch spot vs perpetual basis spread & annualized basis %."""
-    res = basis_engine.evaluate_basis(symbol=symbol, exchange="BINANCE", spot_price=118450.0, perp_mark_price=119250.0)
+    quotes = collector.fetch_all_quotes(symbol=symbol)
+    binance_q = quotes.get("BINANCE")
+    spot_price = binance_q.mid_price if (binance_q and binance_q.mid_price > 0) else 0.0
+    perp_price = spot_price * 1.0002 if spot_price > 0 else 0.0
+    res = basis_engine.evaluate_basis(symbol=symbol or "BTC/USDT", exchange="BINANCE", spot_price=spot_price, perp_mark_price=perp_price)
     return {"status": "success", "basis": res.to_dict()}
 
 @router.get("/metrics")
@@ -64,6 +68,37 @@ async def get_arbitrage_metrics(current_user: UserModel = Depends(get_current_us
         "governance": gov.to_dict(),
         "shadow_active": shadow_active
     }
+
+from pydantic import BaseModel
+
+class ArbitrageSimulateTradeRequest(BaseModel):
+    symbol: Optional[str] = "BTC/USDT"
+    buy_exchange: Optional[str] = "BINANCE"
+    sell_exchange: Optional[str] = "BYBIT"
+    buy_price: float
+    sell_price: float
+    net_spread_pct: float
+    amount_usd: Optional[float] = 10000.0
+
+@router.post("/simulate-trade")
+async def simulate_arbitrage_trade(body: ArbitrageSimulateTradeRequest, current_user: UserModel = Depends(get_current_user)):
+    """Manually trigger dual-leg shadow arbitrage execution & track Shadow PnL."""
+    res = shadow_router.route_arbitrage_opportunity(
+        symbol=body.symbol or "BTC/USDT",
+        buy_exchange=body.buy_exchange or "BINANCE",
+        sell_exchange=body.sell_exchange or "BYBIT",
+        buy_price=body.buy_price,
+        sell_price=body.sell_price,
+        net_spread_pct=body.net_spread_pct,
+        amount_usd=body.amount_usd or 10000.0
+    )
+
+    if res.get("status") == "success" and "execution" in res:
+        exec_info = res["execution"]
+        profit_usd = exec_info.get("net_profit_usd", 0.0)
+        ArbitrageMetricsTracker().record_shadow_execution(profit_usd)
+
+    return res
 
 @router.post("/shadow/start")
 async def start_shadow_arbitrage(current_user: UserModel = Depends(get_current_user)):

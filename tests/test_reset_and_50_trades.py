@@ -26,9 +26,11 @@ async def test_reset_paper_account():
 async def test_50_concurrent_trades_capacity():
     trader = PaperTrader(user_id=77777)
     await trader.initialize_and_restore_state()
+    await trader.reset_paper_account_async(default_balance=10000.0)
     trader.max_open_positions = 50
     trader.risk_manager.config.max_concurrent_trades = 50
     trader.risk_manager.config.correlation_group_limit = 50
+
 
 
     from backend.routers.preferences_router import DEFAULT_50_SYMBOLS
@@ -41,11 +43,12 @@ async def test_50_concurrent_trades_capacity():
             symbol=sym,
             side="LONG",
             price=100.0,
-            allocation_usd=1000.0,
+            allocation_usd=100.0,
             stop_loss_price=90.0,
             take_profit_price=120.0,
             leverage=3
         )
+
         assert res["status"] == "success"
 
     assert len(trader.positions) == 25

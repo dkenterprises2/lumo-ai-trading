@@ -6,6 +6,7 @@ from .execution_orchestrator import execution_orchestrator, ExecutionOrchestrato
 from .order_state_machine import OrderStateMachine, OrderState
 from .smart_order_router import SmartOrderRouter
 from .slippage_engine import SlippageEngine
+from .execution_job_manager import execution_job_manager, ExecutionJobManager
 
 __all__ = [
     "ExecutionOrchestrator",
@@ -13,5 +14,7 @@ __all__ = [
     "OrderStateMachine",
     "OrderState",
     "SmartOrderRouter",
-    "SlippageEngine"
+    "SlippageEngine",
+    "ExecutionJobManager",
+    "execution_job_manager"
 ]

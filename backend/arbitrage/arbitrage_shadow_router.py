@@ -18,7 +18,9 @@ class ArbitrageShadowRouter:
         buy_price: float,
         sell_price: float,
         net_spread_pct: float,
-        amount_usd: float = 10000.0
+        amount_usd: float = 10000.0,
+        quote_status: str = "FRESH",
+        data_age_ms: float = 0.0
     ) -> Dict[str, Any]:
         risk_res = self.risk_filter.evaluate_opportunity_risk(net_spread_pct=net_spread_pct)
         if not risk_res.passed:
@@ -30,7 +32,21 @@ class ArbitrageShadowRouter:
             sell_exchange=sell_exchange,
             buy_price=buy_price,
             sell_price=sell_price,
-            amount_usd=amount_usd
+            amount_usd=amount_usd,
+            quote_status=quote_status,
+            data_age_ms=data_age_ms
         )
         self.history.append(exec_res)
-        return {"status": "success", "mode": "SHADOW", "execution": exec_res.to_dict()}
+
+        if exec_res.status == "REJECTED":
+            return {
+                "status": "rejected",
+                "reason": exec_res.rejection_reason or "Simulation rejected",
+                "execution": exec_res.to_dict()
+            }
+
+        return {
+            "status": "success",
+            "mode": "SHADOW",
+            "execution": exec_res.to_dict()
+        }

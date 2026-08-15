@@ -14,6 +14,9 @@ import { BottomTabsPanel } from "@/components/terminal/BottomTabsPanel";
 import { useAuth } from "@/context/AuthContext";
 import { SubscriptionLimitsCard } from "@/components/dashboard/SubscriptionLimitsCard";
 import { ManualTradingCard } from "@/components/dashboard/ManualTradingCard";
+import { InstitutionalModulesGrid } from "@/components/dashboard/InstitutionalModulesGrid";
+import { ModuleRegistryStatusWidget } from "@/components/dashboard/ModuleRegistryStatusWidget";
+
 
 export default function InstitutionalDashboardPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -124,6 +127,9 @@ export default function InstitutionalDashboardPage() {
           </div>
 
 
+          {/* Advanced Trading Intelligence Quick Access Grid */}
+          <InstitutionalModulesGrid />
+
           {/* Active Open Positions & Execution Terminal Widget */}
           <div className="space-y-2">
             <h2 className="text-base font-bold text-slate-200">Live Active Positions &amp; Execution Blotter</h2>
@@ -136,32 +142,9 @@ export default function InstitutionalDashboardPage() {
             />
           </div>
 
-          {/* Core Feature Quick Links */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <Link href="/copilot" className="bg-slate-900/60 border border-slate-800 p-6 rounded-2xl hover:border-indigo-500 transition-all group">
-              <div className="flex items-center gap-3 text-indigo-400">
-                <Bot className="w-6 h-6" />
-                <h3 className="font-bold text-white text-base group-hover:text-indigo-300">Enterprise AI Copilot</h3>
-              </div>
-              <p className="text-xs text-slate-400 mt-2">Ask natural-language questions about portfolio exposure, trade execution costs, and factor risk.</p>
-            </Link>
+          {/* Enterprise AI & Governance Module Registry Widgets */}
+          <ModuleRegistryStatusWidget />
 
-            <Link href="/scanner" className="bg-slate-900/60 border border-slate-800 p-6 rounded-2xl hover:border-indigo-500 transition-all group">
-              <div className="flex items-center gap-3 text-cyan-400">
-                <Scan className="w-6 h-6" />
-                <h3 className="font-bold text-white text-base group-hover:text-cyan-300">Market Scanner</h3>
-              </div>
-              <p className="text-xs text-slate-400 mt-2">Real-time multi-symbol opportunity scanner with AI regime detection and volume profile intelligence.</p>
-            </Link>
-
-            <Link href="/execution" className="bg-slate-900/60 border border-slate-800 p-6 rounded-2xl hover:border-indigo-500 transition-all group">
-              <div className="flex items-center gap-3 text-purple-400">
-                <Crosshair className="w-6 h-6" />
-                <h3 className="font-bold text-white text-base group-hover:text-purple-300">OMS / EMS Router</h3>
-              </div>
-              <p className="text-xs text-slate-400 mt-2">Institutional execution network with TWAP, VWAP, POV, Iceberg algorithms &amp; Smart Order Routing.</p>
-            </Link>
-          </div>
         </main>
 
         <Footer dbSyncStatus={currentPortfolio?.database_sync_status} lastValidationTime={currentPortfolio?.last_validation_time} connectionState={stream.connectionState} />

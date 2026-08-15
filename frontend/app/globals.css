@@ -116,7 +116,10 @@ code, kbd, samp, pre, .font-mono {
 }
 
 /* Light Theme High-Contrast Notice & Text Overrides */
-[data-theme="fluent-light"] .text-white {
+[data-theme="fluent-light"] .text-white,
+[data-theme="fluent-light"] .text-slate-100,
+[data-theme="fluent-light"] .text-slate-200,
+[data-theme="fluent-light"] .text-slate-300 {
   color: #0f172a !important;
 }
 
@@ -141,40 +144,109 @@ code, kbd, samp, pre, .font-mono {
   color: #64748b !important;
 }
 
+/* Light Theme Accent Text Colors */
 [data-theme="fluent-light"] .text-cyan-100,
 [data-theme="fluent-light"] .text-cyan-200,
-[data-theme="fluent-light"] .text-cyan-300 {
-  color: #0369a1 !important;
+[data-theme="fluent-light"] .text-cyan-300,
+[data-theme="fluent-light"] .text-cyan-400,
+[data-theme="fluent-light"] .text-cyan-500 {
+  color: #0284c7 !important;
 }
 
 [data-theme="fluent-light"] .text-emerald-100,
 [data-theme="fluent-light"] .text-emerald-200,
-[data-theme="fluent-light"] .text-emerald-300 {
+[data-theme="fluent-light"] .text-emerald-300,
+[data-theme="fluent-light"] .text-emerald-400,
+[data-theme="fluent-light"] .text-emerald-500 {
   color: #047857 !important;
 }
 
 [data-theme="fluent-light"] .text-amber-100,
 [data-theme="fluent-light"] .text-amber-200,
-[data-theme="fluent-light"] .text-amber-300 {
+[data-theme="fluent-light"] .text-amber-300,
+[data-theme="fluent-light"] .text-amber-400,
+[data-theme="fluent-light"] .text-amber-500 {
   color: #b45309 !important;
 }
 
+[data-theme="fluent-light"] .text-purple-100,
+[data-theme="fluent-light"] .text-purple-200,
+[data-theme="fluent-light"] .text-purple-300,
+[data-theme="fluent-light"] .text-purple-400,
+[data-theme="fluent-light"] .text-purple-500 {
+  color: #6d28d9 !important;
+}
+
+[data-theme="fluent-light"] .text-rose-100,
+[data-theme="fluent-light"] .text-rose-200,
+[data-theme="fluent-light"] .text-rose-300,
+[data-theme="fluent-light"] .text-rose-400,
+[data-theme="fluent-light"] .text-rose-500 {
+  color: #be123c !important;
+}
+
+[data-theme="fluent-light"] .text-indigo-100,
+[data-theme="fluent-light"] .text-indigo-200,
+[data-theme="fluent-light"] .text-indigo-300,
+[data-theme="fluent-light"] .text-indigo-400,
+[data-theme="fluent-light"] .text-indigo-500 {
+  color: #4338ca !important;
+}
+
+[data-theme="fluent-light"] .text-blue-100,
+[data-theme="fluent-light"] .text-blue-200,
+[data-theme="fluent-light"] .text-blue-300,
+[data-theme="fluent-light"] .text-blue-400,
+[data-theme="fluent-light"] .text-blue-500 {
+  color: #1d4ed8 !important;
+}
+
+/* Light Theme Badges and Containers */
 [data-theme="fluent-light"] .bg-cyan-500\/10,
-[data-theme="fluent-light"] .bg-cyan-500\/15 {
-  background-color: rgba(2, 132, 199, 0.15) !important;
-  border-color: rgba(2, 132, 199, 0.4) !important;
+[data-theme="fluent-light"] .bg-cyan-500\/15,
+[data-theme="fluent-light"] .bg-cyan-500\/20 {
+  background-color: rgba(2, 132, 199, 0.12) !important;
+  border-color: rgba(2, 132, 199, 0.35) !important;
+  color: #0284c7 !important;
 }
 
 [data-theme="fluent-light"] .bg-emerald-500\/10,
-[data-theme="fluent-light"] .bg-emerald-500\/15 {
-  background-color: rgba(16, 185, 129, 0.15) !important;
-  border-color: rgba(16, 185, 129, 0.4) !important;
+[data-theme="fluent-light"] .bg-emerald-500\/15,
+[data-theme="fluent-light"] .bg-emerald-500\/20 {
+  background-color: rgba(16, 185, 129, 0.12) !important;
+  border-color: rgba(16, 185, 129, 0.35) !important;
+  color: #047857 !important;
 }
 
 [data-theme="fluent-light"] .bg-amber-500\/10,
-[data-theme="fluent-light"] .bg-amber-500\/15 {
-  background-color: rgba(245, 158, 11, 0.15) !important;
-  border-color: rgba(245, 158, 11, 0.4) !important;
+[data-theme="fluent-light"] .bg-amber-500\/15,
+[data-theme="fluent-light"] .bg-amber-500\/20 {
+  background-color: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.35) !important;
+  color: #b45309 !important;
+}
+
+[data-theme="fluent-light"] .bg-purple-500\/10,
+[data-theme="fluent-light"] .bg-purple-500\/15,
+[data-theme="fluent-light"] .bg-purple-500\/20 {
+  background-color: rgba(168, 85, 247, 0.12) !important;
+  border-color: rgba(168, 85, 247, 0.35) !important;
+  color: #6d28d9 !important;
+}
+
+[data-theme="fluent-light"] .bg-rose-500\/10,
+[data-theme="fluent-light"] .bg-rose-500\/15,
+[data-theme="fluent-light"] .bg-rose-500\/20 {
+  background-color: rgba(244, 63, 94, 0.12) !important;
+  border-color: rgba(244, 63, 94, 0.35) !important;
+  color: #be123c !important;
+}
+
+[data-theme="fluent-light"] .hover\:bg-slate-800\/30:hover,
+[data-theme="fluent-light"] .hover\:bg-slate-800:hover,
+[data-theme="fluent-light"] .hover\:bg-slate-900:hover,
+[data-theme="fluent-light"] .hover\:bg-slate-900\/90:hover {
+  background-color: #cbd5e1 !important;
 }
 
 

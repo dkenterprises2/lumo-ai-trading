@@ -183,6 +183,7 @@ from backend.routers.system_router import router as system_router
 from backend.routers.shadow_router import router as shadow_router
 from backend.routers.arbitrage_router import router as arbitrage_router
 from backend.routers.news_router import router as news_router
+from backend.routers.autonomous_router import router as autonomous_router
 
 app.include_router(auth_router)
 app.include_router(preferences_router)
@@ -192,6 +193,7 @@ app.include_router(system_router)
 app.include_router(shadow_router)
 app.include_router(arbitrage_router)
 app.include_router(news_router)
+app.include_router(autonomous_router)
 app.include_router(exchange_router)
 
 

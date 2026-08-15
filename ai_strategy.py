@@ -377,20 +377,30 @@ class AITradingStrategy:
         confidence = round(max(0.0, min(99.0, confidence)), 1)
 
         # ---------------------------------------------------------------------
-        # 5. PRICE TARGETS & 100-POINT SCORE BREAKDOWN SYNTHESIS
-        # ---------------------------------------------------------------------
+        def round_price(val: float) -> float:
+            if not val or val <= 0:
+                return 0.0
+            if val < 0.0001:
+                return round(val, 8)
+            if val < 0.01:
+                return round(val, 6)
+            if val < 1.0:
+                return round(val, 4)
+            return round(val, 2)
+
         if direction == "LONG":
-            stop_loss_price = round(current_price - stop_loss_dist, 4)
-            take_profit_price = round(current_price + take_profit_dist, 4)
+            stop_loss_price = round_price(current_price - stop_loss_dist)
+            take_profit_price = round_price(current_price + take_profit_dist)
         elif direction == "SHORT":
-            stop_loss_price = round(current_price + stop_loss_dist, 4)
-            take_profit_price = round(current_price - take_profit_dist, 4)
+            stop_loss_price = round_price(current_price + stop_loss_dist)
+            take_profit_price = round_price(current_price - take_profit_dist)
         else:
-            stop_loss_price = round(current_price * 0.975, 4)
-            take_profit_price = round(current_price * 1.05, 4)
+            stop_loss_price = round_price(current_price * 0.975)
+            take_profit_price = round_price(current_price * 1.05)
 
         sl_pct = round(abs(current_price - stop_loss_price) / (current_price + 1e-9) * 100.0, 2)
         tp_pct = round(abs(take_profit_price - current_price) / (current_price + 1e-9) * 100.0, 2)
+
 
         sentiment_label = sentiment_summary.get("label", "NEUTRAL")
         explainable_reasons.append(

@@ -18,6 +18,10 @@ class ShadowSafetyGuard:
         self.mode = mode
         self.blocked_attempts_log = []
 
+    @property
+    def shadow_mode(self) -> bool:
+        return self.mode == TradingMode.SHADOW
+
     def assert_shadow_safety(self, action_name: str = "Live Exchange Order"):
         """Raise exception if real exchange order or withdrawal is attempted in SHADOW mode."""
         if self.mode == TradingMode.SHADOW:

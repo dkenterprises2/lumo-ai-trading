@@ -4,6 +4,9 @@ from backend.portfolio_risk.portfolio_risk_engine import InstitutionalPortfolioR
 
 def test_portfolio_risk_engine_snapshot():
     trader = PaperTrader(user_id=1, initial_balance=10000.0)
+    trader.max_open_positions = 10
+    if hasattr(trader, 'risk_manager') and hasattr(trader.risk_manager, 'config'):
+        trader.risk_manager.config.max_concurrent_trades = 10
     engine = InstitutionalPortfolioRiskEngine()
 
     state = engine.evaluate_portfolio_state("1", trader)

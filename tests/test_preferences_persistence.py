@@ -6,7 +6,8 @@ from trader import PaperTrader
 @pytest.mark.asyncio
 async def test_trading_preferences_persistence_roundtrip():
     repo = TraderRepository()
-    test_user_id = 99999
+    test_user_id = 98765
+
 
     # Save preferences to DB
     await repo.save_portfolio_state(

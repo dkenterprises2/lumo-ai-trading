@@ -1,5 +1,9 @@
 import time
+import logging
 from typing import Dict, List, Any, Optional
+
+logger = logging.getLogger("portfolio_risk_engine")
+
 
 from .portfolio_state import PortfolioRiskState
 from .correlation_engine import CorrelationEngine
@@ -108,7 +112,8 @@ class InstitutionalPortfolioRiskEngine:
             volatility_regime=vol_res.volatility_regime,
             daily_loss_used_pct=budget_res.used_today_pct,
             max_daily_loss_pct=budget_res.daily_budget_pct,
-            is_kill_switch_halted=(self.kill_switch.status == "HALTED")
+            is_kill_switch_halted=(self.kill_switch.state == "HALTED")
+
         )
 
 
@@ -128,7 +133,67 @@ class InstitutionalPortfolioRiskEngine:
         elif heat_res.status in ["HIGH", "WARNING"] or budget_res.status == "WARNING":
             overall_status = "WARNING"
 
-        risk_score = min(100.0, (corr_res["correlation_risk_score"] * 30.0) + (conc_res.concentration_risk_score * 30.0) + (heat_res.utilization_pct * 0.40))
+        has_positions = len(positions) > 0
+
+        if not has_positions:
+            risk_score = None
+            heat_score = 0.0
+            dd_score = 0.0
+            corr_score = 0.0
+            conc_score = 0.0
+            vol_score = 0.0
+            budget_score = 0.0
+            leverage_score = 0.0
+            risk_drivers = {
+                "has_active_positions": False,
+                "position_count": 0,
+                "factors": {
+                    "portfolio_heat": {"weight": 0.25, "score": 0.0, "contribution": 0.0},
+                    "drawdown": {"weight": 0.20, "score": 0.0, "contribution": 0.0},
+                    "correlation": {"weight": 0.20, "score": 0.0, "contribution": 0.0},
+                    "concentration": {"weight": 0.15, "score": 0.0, "contribution": 0.0},
+                    "volatility": {"weight": 0.10, "score": 0.0, "contribution": 0.0},
+                    "risk_budget": {"weight": 0.05, "score": 0.0, "contribution": 0.0},
+                    "leverage": {"weight": 0.05, "score": 0.0, "contribution": 0.0}
+                },
+                "total_risk_score": "N/A",
+                "explanation": "No active positions in portfolio. Portfolio risk score is N/A."
+            }
+        else:
+            heat_score = min(100.0, float(heat_res.utilization_pct))
+            dd_score = min(100.0, float(dd_pct * 5.0))
+            corr_score = min(100.0, float(corr_res.get("correlation_risk_score", 0.0) * 100.0))
+            conc_score = min(100.0, float(conc_res.concentration_risk_score * 100.0))
+            vol_score = 50.0 if vol_res.volatility_regime == "NORMAL" else (80.0 if vol_res.volatility_regime == "HIGH" else 20.0)
+            budget_score = min(100.0, max(0.0, (100.0 - float(budget_res.remaining_daily_pct) * 20.0)))
+            leverage_score = 20.0
+
+            raw_score = (
+                0.25 * heat_score +
+                0.20 * dd_score +
+                0.20 * corr_score +
+                0.15 * conc_score +
+                0.10 * vol_score +
+                0.05 * budget_score +
+                0.05 * leverage_score
+            )
+            risk_score = round(min(100.0, max(0.0, raw_score)), 2)
+
+            risk_drivers = {
+                "has_active_positions": True,
+                "position_count": len(positions),
+                "factors": {
+                    "portfolio_heat": {"weight": 0.25, "score": round(heat_score, 2), "contribution": round(0.25 * heat_score, 2)},
+                    "drawdown": {"weight": 0.20, "score": round(dd_score, 2), "contribution": round(0.20 * dd_score, 2)},
+                    "correlation": {"weight": 0.20, "score": round(corr_score, 2), "contribution": round(0.20 * corr_score, 2)},
+                    "concentration": {"weight": 0.15, "score": round(conc_score, 2), "contribution": round(0.15 * conc_score, 2)},
+                    "volatility": {"weight": 0.10, "score": round(vol_score, 2), "contribution": round(0.10 * vol_score, 2)},
+                    "risk_budget": {"weight": 0.05, "score": round(budget_score, 2), "contribution": round(0.05 * budget_score, 2)},
+                    "leverage": {"weight": 0.05, "score": round(leverage_score, 2), "contribution": round(0.05 * leverage_score, 2)}
+                },
+                "total_risk_score": risk_score,
+                "explanation": f"Portfolio risk score is {risk_score}/100 derived from {len(positions)} active position(s)."
+            }
 
         return PortfolioRiskState(
             user_id=str(user_id),
@@ -149,7 +214,7 @@ class InstitutionalPortfolioRiskEngine:
             leverage_used=1.0,
             recommended_max_leverage=2.0,
             risk_budget_remaining_pct=budget_res.remaining_daily_pct,
-            risk_score=round(risk_score, 2),
+            risk_score=risk_score,
             overall_status=overall_status,
             timestamp=time.time(),
             metadata={
@@ -162,7 +227,8 @@ class InstitutionalPortfolioRiskEngine:
                 "regime": regime_res.to_dict(),
                 "budget": budget_res.to_dict(),
                 "trade_limit": limit_res.to_dict(),
-                "kill_switch": ks_status.to_dict()
+                "kill_switch": ks_status.to_dict(),
+                "risk_drivers": risk_drivers
             }
         )
 

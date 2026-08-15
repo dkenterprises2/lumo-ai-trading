@@ -730,8 +730,26 @@ class PaperTrader:
         else:
             liq_price = round_price(price * (1.0 + (1.0 / leverage) * 0.9))
 
+        # Precision & Out-of-Bounds Safety Sanitization for Stop Loss & Take Profit
+        if stop_loss_price:
+            stop_loss_price = round_price(stop_loss_price)
+        if take_profit_price:
+            take_profit_price = round_price(take_profit_price)
+
+        if side.upper() == "LONG":
+            if not stop_loss_price or stop_loss_price >= price or stop_loss_price < price * 0.50:
+                stop_loss_price = round_price(price * 0.975)
+            if not take_profit_price or take_profit_price <= price:
+                take_profit_price = round_price(price * 1.05)
+        else: # SHORT
+            if not stop_loss_price or stop_loss_price <= price or stop_loss_price > price * 1.15:
+                logger.warning(f"[SL_PRECISION_GUARD] UserID={self.user_id} | Symbol={symbol} SHORT Stop-loss ${stop_loss_price} out of bounds for entry ${price}. Auto-correcting to 2.5% above entry.")
+                stop_loss_price = round_price(price * 1.025)
+            if not take_profit_price or take_profit_price >= price:
+                take_profit_price = round_price(price * 0.95)
 
         position = {
+
             "id": pos_id,
             "user_id": self.user_id,
             "symbol": symbol,
@@ -834,9 +852,15 @@ class PaperTrader:
         else:
             pnl_usd = (pos['entry_price'] - price) * amount_to_close
 
+        # Isolated Margin Risk Guard: Max loss capped at 100% of margin (-margin_to_release)
+        max_loss = -1.0 * margin_to_release
+        if pnl_usd < max_loss:
+            logger.warning(f"[ISOLATED_MARGIN_CAP] UserID={self.user_id} | Position {symbol} raw loss ${pnl_usd:.2f} capped to isolated margin loss ${max_loss:.2f} (-100%)")
+            pnl_usd = max_loss
 
         cost_basis = margin_to_release
         pnl_pct = (pnl_usd / cost_basis) * 100.0 if cost_basis > 0 else 0.0
+
 
         # Execute margin release & PnL settlement through double-entry ledger
         self._execute_ledger_transaction(

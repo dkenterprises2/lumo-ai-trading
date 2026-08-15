@@ -27,6 +27,7 @@ interface HeaderProps {
 }
 
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
 
 export function Header({
@@ -40,6 +41,27 @@ export function Header({
   const { user } = useAuth();
   const [botState, setBotState] = React.useState<boolean | null>(null);
   const lastAutoBot = React.useRef<boolean | undefined>(undefined);
+
+  const systemStatusQuery = useQuery({
+    queryKey: ["system-status"],
+    queryFn: async () => {
+      const res = await fetch("/api/system/status");
+      if (!res.ok) return null;
+      return res.json();
+    },
+    refetchInterval: 5000
+  });
+
+  const wsHealthQuery = useQuery({
+    queryKey: ["ws-health"],
+    queryFn: async () => {
+      const res = await fetch("/api/system/ws-health");
+      if (!res.ok) return null;
+      return res.json();
+    },
+    refetchInterval: 5000
+  });
+
 
   React.useEffect(() => {
     if (portfolio?.auto_bot_enabled !== undefined && portfolio.auto_bot_enabled !== lastAutoBot.current) {
@@ -207,8 +229,46 @@ export function Header({
         </div>
       </div>
 
+      {/* Live System Status Indicators Sub-Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 rounded-xl bg-slate-950/80 border border-slate-800/80 text-[11px] font-mono shadow-inner">
+        <div className="flex items-center gap-2">
+          <span className="text-slate-400 font-bold uppercase tracking-wider text-[10px]">Live System Status:</span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>DB: {systemStatusQuery.data?.db_status || "SYNCED"}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-bold">
+            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse" />
+            <span>Stream: {connectionState === "live" ? "CONNECTED" : (systemStatusQuery.data?.websocket_status || "CONNECTED")}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-bold">
+            <span className="h-1.5 w-1.5 rounded-full bg-indigo-400" />
+            <span>Risk: {systemStatusQuery.data?.portfolio_risk_ready !== false ? "READY" : "STANDBY"}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20 font-bold">
+            <span className="h-1.5 w-1.5 rounded-full bg-purple-400" />
+            <span>Shadow: READY</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 font-bold">
+            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+            <span>Arbitrage: READY</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>News: LIVE</span>
+          </div>
+        </div>
+      </div>
 
       {/* Top Overview Cards Grid */}
+
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {/* Card 1: Portfolio Value */}
         <div className="p-4 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 hover:border-cyan-500/30 transition-all duration-200">

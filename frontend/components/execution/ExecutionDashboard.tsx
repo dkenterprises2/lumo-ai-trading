@@ -14,9 +14,10 @@ import {
   Clock, 
   Crosshair,
   Compass,
-  FileText
+  FileText,
+  AlertCircle
 } from "lucide-react";
-import { API_BASE_URL } from "@/lib/config";
+import { apiFetch } from "@/services/api";
 
 interface Order {
   order_id: string;
@@ -45,7 +46,6 @@ interface Fill {
   timestamp: number;
 }
 
-
 export default function ExecutionDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [fills, setFills] = useState<Fill[]>([]);
@@ -53,6 +53,8 @@ export default function ExecutionDashboard() {
   const [costs, setCosts] = useState<any>(null);
   const [venueHealth, setVenueHealth] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [algoTab, setAlgoTab] = useState<"TWAP" | "VWAP" | "ICEBERG">("TWAP");
 
   // Algorithm form inputs
@@ -60,17 +62,17 @@ export default function ExecutionDashboard() {
   const [side, setSide] = useState("BUY");
   const [quantity, setQuantity] = useState("1.0");
 
+  const [jobs, setJobs] = useState<any[]>([]);
+
   const fetchData = async () => {
     try {
-      const token = localStorage.getItem("access_token");
-      const headers = { Authorization: `Bearer ${token}` };
-
-      const [resOrders, resFills, resTelem, resCosts, resHealth] = await Promise.all([
-        fetch(`${API_BASE_URL}/api/execution/orders`, { headers }),
-        fetch(`${API_BASE_URL}/api/execution/fills`, { headers }),
-        fetch(`${API_BASE_URL}/api/execution/telemetry`, { headers }),
-        fetch(`${API_BASE_URL}/api/execution/costs`, { headers }),
-        fetch(`${API_BASE_URL}/api/execution/exchanges/health`, { headers })
+      const [resOrders, resFills, resTelem, resCosts, resHealth, resJobs] = await Promise.all([
+        apiFetch("/api/execution/orders"),
+        apiFetch("/api/execution/fills"),
+        apiFetch("/api/execution/telemetry"),
+        apiFetch("/api/execution/costs"),
+        apiFetch("/api/execution/exchanges/health"),
+        apiFetch("/api/execution/jobs")
       ]);
 
       if (resOrders.ok) setOrders(await resOrders.json());
@@ -78,6 +80,7 @@ export default function ExecutionDashboard() {
       if (resTelem.ok) setTelemetry(await resTelem.json());
       if (resCosts.ok) setCosts(await resCosts.json());
       if (resHealth.ok) setVenueHealth(await resHealth.json());
+      if (resJobs.ok) setJobs(await resJobs.json());
     } catch (e) {
       console.error("Failed to fetch execution telemetry", e);
     } finally {
@@ -87,28 +90,68 @@ export default function ExecutionDashboard() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 8000);
+    const interval = setInterval(fetchData, 6000);
     return () => clearInterval(interval);
   }, []);
 
   const handleCreateAlgo = async () => {
     try {
-      const token = localStorage.getItem("access_token");
-      const headers = { "Content-Type": "application/json", Authorization: `Bearer ${token}` };
-      const endpoint = algoTab.toLowerCase();
+      setSubmitting(true);
+      setFeedback(null);
 
-      const res = await fetch(`${API_BASE_URL}/api/execution/algorithms/${endpoint}`, {
+      const parsedQty = parseFloat(quantity);
+      if (isNaN(parsedQty) || parsedQty <= 0) {
+        setFeedback({ type: "error", message: "Please specify a valid quantity greater than 0." });
+        setSubmitting(false);
+        return;
+      }
+
+      const res = await apiFetch("/api/execution/jobs", {
         method: "POST",
-        headers,
-        body: JSON.stringify({ symbol, side, total_quantity: parseFloat(quantity) })
+        body: JSON.stringify({
+          symbol: symbol.trim(),
+          side,
+          algo_type: algoTab,
+          total_quantity: parsedQty,
+          num_slices: 5
+        })
       });
 
       if (res.ok) {
-        alert(`${algoTab} Job Initialized Successfully!`);
+        const job = await res.json();
+        setFeedback({
+          type: "success",
+          message: `${algoTab} Job ${job.job_id} successfully executed! Status: ${job.status} (${job.filled_quantity}/${job.total_quantity} filled @ avg $${job.average_fill_price || 'N/A'})`
+        });
+        fetchData();
+      } else {
+        const err = await res.json().catch(() => ({ detail: "Request failed" }));
+        setFeedback({
+          type: "error",
+          message: `Failed to launch ${algoTab} job: ${err.detail || err.message || "Unknown server response"}`
+        });
+      }
+    } catch (e: any) {
+      console.error("Failed to create algorithm job", e);
+      setFeedback({
+        type: "error",
+        message: `Failed to launch job: ${e.message || "Network error"}`
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCancelJob = async (jobId: string) => {
+    try {
+      const res = await apiFetch(`/api/execution/jobs/${jobId}/cancel`, {
+        method: "POST"
+      });
+      if (res.ok) {
         fetchData();
       }
     } catch (e) {
-      console.error("Failed to create algorithm job", e);
+      console.error("Failed to cancel job", e);
     }
   };
 
@@ -168,7 +211,9 @@ export default function ExecutionDashboard() {
             <Crosshair className="w-5 h-5 text-amber-400" />
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
-            <span className="text-3xl font-mono font-bold text-amber-400">{telemetry?.average_slippage_pct ?? 0.02}%</span>
+            <span className="text-3xl font-mono font-bold text-amber-400">
+              {telemetry && telemetry.average_slippage_pct !== undefined ? `${telemetry.average_slippage_pct}%` : "—"}
+            </span>
             <span className="text-xs text-slate-400">Allowed</span>
           </div>
         </div>
@@ -179,7 +224,9 @@ export default function ExecutionDashboard() {
             <DollarSign className="w-5 h-5 text-indigo-400" />
           </div>
           <div className="mt-3 flex items-baseline space-x-2">
-            <span className="text-3xl font-mono font-bold text-indigo-400">${costs?.total_execution_cost_usd ?? 0.00}</span>
+            <span className="text-3xl font-mono font-bold text-indigo-400">
+              {costs && costs.total_execution_cost_usd !== undefined ? `$${costs.total_execution_cost_usd.toFixed(2)}` : "$0.00"}
+            </span>
           </div>
         </div>
       </div>
@@ -234,11 +281,103 @@ export default function ExecutionDashboard() {
           </div>
           <button
             onClick={handleCreateAlgo}
-            className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-sm rounded-xl py-2.5 shadow-lg shadow-cyan-900/30 transition-all"
+            disabled={submitting}
+            className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 disabled:opacity-50 text-slate-950 font-bold text-sm rounded-xl py-2.5 shadow-lg shadow-cyan-900/30 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:cursor-not-allowed"
           >
-            Launch {algoTab} Job
+            {submitting ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Launching...</span>
+              </>
+            ) : (
+              <span>Launch {algoTab} Job</span>
+            )}
           </button>
         </div>
+
+        {feedback && (
+          <div className={`p-3.5 rounded-xl border flex items-center gap-3 text-xs font-semibold ${
+            feedback.type === "success"
+              ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
+              : "bg-rose-500/10 border-rose-500/30 text-rose-400"
+          }`}>
+            {feedback.type === "success" ? (
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 shrink-0" />
+            )}
+            <span className="flex-1">{feedback.message}</span>
+            <button
+              onClick={() => setFeedback(null)}
+              className="text-slate-400 hover:text-white text-xs font-bold px-1"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Algorithmic Execution Jobs Monitor */}
+      <div className="bg-slate-900/60 border border-slate-800 p-6 rounded-2xl backdrop-blur-md space-y-4">
+        <h2 className="text-lg font-bold text-slate-200 flex items-center space-x-2">
+          <Activity className="w-5 h-5 text-cyan-400" />
+          <span>Active Algorithmic Execution Jobs</span>
+        </h2>
+
+        {jobs.length === 0 ? (
+          <div className="text-slate-400 text-sm bg-slate-950/40 p-4 rounded-xl border border-slate-800">
+            No active algorithmic jobs running. Use the wizard above to launch TWAP, VWAP, or Iceberg jobs.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase font-semibold">
+                  <th className="py-2.5 px-3">Job ID</th>
+                  <th className="py-2.5 px-3">Algo</th>
+                  <th className="py-2.5 px-3">Symbol</th>
+                  <th className="py-2.5 px-3">Side</th>
+                  <th className="py-2.5 px-3">Filled / Total</th>
+                  <th className="py-2.5 px-3">Avg Fill Price</th>
+                  <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-mono">
+                {jobs.map((j: any) => (
+                  <tr key={j.job_id} className="hover:bg-slate-800/30">
+                    <td className="py-2.5 px-3 text-cyan-300 font-bold">{j.job_id}</td>
+                    <td className="py-2.5 px-3 text-slate-200">{j.algo_type}</td>
+                    <td className="py-2.5 px-3 text-slate-200 font-bold">{j.symbol}</td>
+                    <td className={`py-2.5 px-3 font-bold ${j.side === "BUY" ? "text-emerald-400" : "text-rose-400"}`}>{j.side}</td>
+                    <td className="py-2.5 px-3 text-slate-300">{j.filled_quantity} / {j.total_quantity}</td>
+                    <td className="py-2.5 px-3 text-slate-300">${j.average_fill_price ? j.average_fill_price.toFixed(2) : "0.00"}</td>
+                    <td className="py-2.5 px-3">
+                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${
+                        j.status === "COMPLETED" ? "bg-emerald-500/20 text-emerald-400" :
+                        j.status === "RUNNING" ? "bg-cyan-500/20 text-cyan-400 animate-pulse" :
+                        j.status === "REJECTED" ? "bg-rose-500/20 text-rose-400" :
+                        "bg-amber-500/20 text-amber-400"
+                      }`}>
+                        {j.status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      {["STARTING", "RUNNING"].includes(j.status) && (
+                        <button
+                          onClick={() => handleCancelJob(j.job_id)}
+                          className="px-2.5 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 rounded text-xs font-bold"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Order Blotter & Active Orders Table */}

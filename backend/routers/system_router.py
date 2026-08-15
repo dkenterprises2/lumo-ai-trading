@@ -32,9 +32,10 @@ async def get_portfolio_reconciliation(current_user: UserModel = Depends(get_cur
     return report.to_dict()
 
 @router.get("/api/system/module-registry")
-async def get_module_registry(current_user: UserModel = Depends(get_current_user)):
+async def get_module_registry():
     """Fetch Enterprise Module Integration Status Registry (REAL / BETA / MOCK / DISABLED)."""
     return health_aggregator.get_module_registry()
+
 
 @router.get("/api/exchange/health")
 async def get_exchange_market_data_health(exchange: Optional[str] = "BINANCE", current_user: UserModel = Depends(get_current_user)):
