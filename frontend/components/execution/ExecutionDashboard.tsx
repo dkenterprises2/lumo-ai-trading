@@ -231,6 +231,27 @@ export default function ExecutionDashboard() {
         </div>
       </div>
 
+      {/* 24/7 Autonomous Mode Banner */}
+      <div className="bg-gradient-to-r from-cyan-950/80 to-slate-900 border border-cyan-500/30 p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xl">
+        <div className="flex items-center space-x-3">
+          <div className="p-2.5 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-cyan-400">
+            <Cpu className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-slate-100">Looking for 24/7 Fully Automated Multi-Pair Execution?</h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              The Wizard below is for manual single-order algo testing. To enable continuous automatic scanning &amp; trading across ALL market pairs, activate the <span className="text-cyan-400 font-semibold">Autonomous Execution Engine</span>.
+            </p>
+          </div>
+        </div>
+        <a
+          href="/autonomous"
+          className="inline-flex items-center justify-center shrink-0 px-4 py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold rounded-xl shadow-md shadow-cyan-500/20 transition-all"
+        >
+          Open Autonomous Control →
+        </a>
+      </div>
+
       {/* Algo Execution Wizard */}
       <div className="bg-slate-900/60 border border-slate-800 p-6 rounded-2xl backdrop-blur-md space-y-4">
         <div className="flex items-center space-x-3 border-b border-slate-800 pb-3">
@@ -251,13 +272,21 @@ export default function ExecutionDashboard() {
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           <div>
-            <label className="text-xs font-semibold text-slate-400">Symbol</label>
-            <input
-              type="text"
+            <label className="text-xs font-semibold text-slate-400">Target Pair (Symbol)</label>
+            <select
               value={symbol}
               onChange={e => setSymbol(e.target.value)}
               className="mt-1 w-full bg-slate-950 border border-slate-800 text-slate-200 text-sm rounded-xl px-3 py-2 font-mono"
-            />
+            >
+              <option value="BTC/USDT">BTC/USDT</option>
+              <option value="ETH/USDT">ETH/USDT</option>
+              <option value="SOL/USDT">SOL/USDT</option>
+              <option value="AVAX/USDT">AVAX/USDT</option>
+              <option value="LINK/USDT">LINK/USDT</option>
+              <option value="XRP/USDT">XRP/USDT</option>
+              <option value="BNB/USDT">BNB/USDT</option>
+              <option value="SUI/USDT">SUI/USDT</option>
+            </select>
           </div>
           <div>
             <label className="text-xs font-semibold text-slate-400">Side</label>

@@ -42,12 +42,26 @@ class ShadowOrderBookSnapshot:
 class ShadowOrderBook:
     """Real-Time Orderbook Snapshot & Binance Market Data Feed Simulation."""
 
+    BASE_PRICES = {
+        "BTC/USDT": 118450.0,
+        "BTCUSDT": 118450.0,
+        "ETH/USDT": 3480.0,
+        "ETHUSDT": 3480.0,
+        "SOL/USDT": 215.0,
+        "SOLUSDT": 215.0,
+        "BNB/USDT": 685.0,
+        "BNBUSDT": 685.0,
+    }
+
     def __init__(self):
         self._snapshots: Dict[str, ShadowOrderBookSnapshot] = {}
 
-    def get_orderbook(self, symbol: str, current_price: float = 50000.0) -> ShadowOrderBookSnapshot:
+    def get_orderbook(self, symbol: str, current_price: Optional[float] = None) -> ShadowOrderBookSnapshot:
         sym = symbol.upper()
-        p = max(0.00000001, current_price)
+        if current_price is None or current_price == 50000.0:
+            p = self.BASE_PRICES.get(sym, 118450.0)
+        else:
+            p = max(0.00000001, current_price)
 
         half_spread_usd = p * 0.00015  # 1.5 bps spread
         best_bid = p - half_spread_usd
