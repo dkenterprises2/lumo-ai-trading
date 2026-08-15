@@ -9,6 +9,8 @@ from backend.arbitrage import CrossExchangeArbitrageEngine
 from backend.safety.paper_mode_guard import paper_guard
 from backend.shadow_trading.shadow_safety_guard import shadow_guard
 
+from .autonomous_market_replay import AutonomousMarketReplay
+
 logger = logging.getLogger("autonomous_engine")
 
 class AutonomousEngine:
@@ -27,6 +29,7 @@ class AutonomousEngine:
         self.arb_scanner = CrossExchangeArbitrageEngine()
         self.execution_manager = AutonomousExecutionManager()
         self.metrics_tracker = AutonomousMetricsTracker()
+        self.replay_engine = AutonomousMarketReplay()
         self.start_timestamp: Optional[float] = None
         self.last_scan_timestamp: Optional[float] = None
 
@@ -39,7 +42,30 @@ class AutonomousEngine:
             "live_execution": False,
             "active_positions_count": len([p for p in self.execution_manager.positions.values() if p.status in ["OPEN", "MONITORING"]]),
             "start_timestamp": self.start_timestamp,
-            "last_scan_timestamp": self.last_scan_timestamp
+            "last_scan_timestamp": self.last_scan_timestamp,
+            "replay": self.replay_engine.get_status()
+        }
+
+    def start_replay(self, symbol: str = "BTC/USDT", scenario: str = "FLASH_SPREAD_DISCREPANCY", playback_speed: int = 5) -> Dict[str, Any]:
+        session = self.replay_engine.start_replay_session(symbol=symbol, scenario=scenario, playback_speed=playback_speed)
+        return {"status": "success", "session": session.to_dict()}
+
+    def stop_replay(self) -> Dict[str, Any]:
+        session = self.replay_engine.stop_replay_session()
+        return {"status": "success", "session": session.to_dict() if session else None}
+
+    def run_validation_cycle(self, scenario: str = "FLASH_SPREAD_DISCREPANCY") -> Dict[str, Any]:
+        """Runs a complete deterministic 12-stage autonomous execution proof cycle on replayed market data."""
+        ticks = self.replay_engine.generate_scenario_ticks(scenario=scenario, count=10)
+        results = []
+        for tick in ticks:
+            res = self.execution_manager.run_replay_cycle(tick)
+            results.append(res)
+        return {
+            "status": "success",
+            "scenario": scenario,
+            "ticks_processed": len(ticks),
+            "execution_proof_records": results
         }
 
     def start(self) -> Dict[str, Any]:
