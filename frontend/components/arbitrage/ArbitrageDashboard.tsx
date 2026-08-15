@@ -79,13 +79,21 @@ export function ArbitrageDashboard() {
   const toggleShadowRouter = async () => {
     try {
       setActionLoading(true);
-      const endpoint = shadowActive ? '/api/arbitrage/shadow/stop' : '/api/arbitrage/shadow/start';
+      const nextState = !shadowActive;
+      setShadowActive(nextState);
+      const endpoint = nextState ? '/api/arbitrage/shadow/start' : '/api/arbitrage/shadow/stop';
       const res = await apiFetch(endpoint, { method: 'POST' });
       if (res.ok) {
-        setShadowActive(!shadowActive);
+        const data = await res.json();
+        if (data.shadow_active !== undefined) {
+          setShadowActive(data.shadow_active);
+        }
+      } else {
+        setShadowActive(!nextState);
       }
     } catch (err) {
       console.error('Shadow toggle failed:', err);
+      setShadowActive(!shadowActive);
     } finally {
       setActionLoading(false);
     }
@@ -140,6 +148,33 @@ export function ArbitrageDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-6 space-y-6">
+      {/* Active Shadow Router Alert Banner */}
+      {shadowActive && (
+        <div className="bg-gradient-to-r from-emerald-950/90 to-slate-900 border border-emerald-500/40 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl shadow-emerald-950/30">
+          <div className="flex items-center gap-3">
+            <span className="flex h-3 w-3 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            </span>
+            <div>
+              <div className="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                ⚡ SHADOW ARBITRAGE ROUTER ACTIVE (CONTINUOUS 24/7)
+              </div>
+              <div className="text-[11px] text-emerald-400/80 font-mono mt-0.5">
+                Automated multi-venue spot-spot arbitrage router is continuously scanning &amp; executing paper/shadow trades until manually stopped.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={toggleShadowRouter}
+            disabled={actionLoading}
+            className="shrink-0 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-xs font-bold px-3.5 py-1.5 rounded-lg transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+          >
+            <Square className="w-3.5 h-3.5 fill-current" />
+            Stop Router
+          </button>
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
         <div>

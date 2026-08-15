@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from typing import Dict, Any, Optional
+from pydantic import BaseModel
 
-from backend.auth.security import get_current_user
+from backend.auth.security import get_optional_current_user
 from backend.models.domain import UserModel
 from backend.arbitrage import (
     CrossExchangeArbitrageEngine,
@@ -30,26 +31,26 @@ governance = ArbitrageGovernance()
 shadow_active = False
 
 @router.get("/opportunities")
-async def get_arbitrage_opportunities(symbol: Optional[str] = "BTC/USDT", current_user: UserModel = Depends(get_current_user)):
+async def get_arbitrage_opportunities(symbol: Optional[str] = "BTC/USDT", current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch ranked cross-exchange arbitrage opportunities."""
     raw_opps = engine.scan_opportunities(symbol=symbol)
     ranked = ranker.rank_opportunities(raw_opps)
     return {"status": "success", "count": len(ranked), "opportunities": [o.to_dict() for o in ranked]}
 
 @router.get("/spreads")
-async def get_exchange_spreads(symbol: Optional[str] = "BTC/USDT", current_user: UserModel = Depends(get_current_user)):
+async def get_exchange_spreads(symbol: Optional[str] = "BTC/USDT", current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch real-time orderbook quote snapshots and spreads across 5 venues."""
     quotes = collector.fetch_all_quotes(symbol=symbol)
     return {"status": "success", "quotes": {ex: q.to_dict() for ex, q in quotes.items()}}
 
 @router.get("/funding")
-async def get_funding_rates(symbol: Optional[str] = "BTC/USDT", current_user: UserModel = Depends(get_current_user)):
+async def get_funding_rates(symbol: Optional[str] = "BTC/USDT", current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch perpetual funding rates across Binance, Bybit, OKX, Kraken."""
     rates = funding_collector.fetch_funding_rates(symbol=symbol)
     return {"status": "success", "funding_rates": {ex: r.to_dict() for ex, r in rates.items()}}
 
 @router.get("/basis")
-async def get_spot_perpetual_basis(symbol: Optional[str] = "BTC/USDT", current_user: UserModel = Depends(get_current_user)):
+async def get_spot_perpetual_basis(symbol: Optional[str] = "BTC/USDT", current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch spot vs perpetual basis spread & annualized basis %."""
     quotes = collector.fetch_all_quotes(symbol=symbol)
     binance_q = quotes.get("BINANCE")
@@ -59,7 +60,7 @@ async def get_spot_perpetual_basis(symbol: Optional[str] = "BTC/USDT", current_u
     return {"status": "success", "basis": res.to_dict()}
 
 @router.get("/metrics")
-async def get_arbitrage_metrics(current_user: UserModel = Depends(get_current_user)):
+async def get_arbitrage_metrics(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch cross-exchange arbitrage metrics & performance summary."""
     gov = governance.validate_session()
     return {
@@ -68,8 +69,6 @@ async def get_arbitrage_metrics(current_user: UserModel = Depends(get_current_us
         "governance": gov.to_dict(),
         "shadow_active": shadow_active
     }
-
-from pydantic import BaseModel
 
 class ArbitrageSimulateTradeRequest(BaseModel):
     symbol: Optional[str] = "BTC/USDT"
@@ -81,7 +80,7 @@ class ArbitrageSimulateTradeRequest(BaseModel):
     amount_usd: Optional[float] = 10000.0
 
 @router.post("/simulate-trade")
-async def simulate_arbitrage_trade(body: ArbitrageSimulateTradeRequest, current_user: UserModel = Depends(get_current_user)):
+async def simulate_arbitrage_trade(body: ArbitrageSimulateTradeRequest, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Manually trigger dual-leg shadow arbitrage execution & track Shadow PnL."""
     res = shadow_router.route_arbitrage_opportunity(
         symbol=body.symbol or "BTC/USDT",
@@ -101,14 +100,14 @@ async def simulate_arbitrage_trade(body: ArbitrageSimulateTradeRequest, current_
     return res
 
 @router.post("/shadow/start")
-async def start_shadow_arbitrage(current_user: UserModel = Depends(get_current_user)):
+async def start_shadow_arbitrage(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Start automated cross-exchange shadow arbitrage routing."""
     global shadow_active
     shadow_active = True
     return {"status": "success", "message": "Shadow Arbitrage Router ACTIVATED", "shadow_active": True}
 
 @router.post("/shadow/stop")
-async def stop_shadow_arbitrage(current_user: UserModel = Depends(get_current_user)):
+async def stop_shadow_arbitrage(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Stop automated cross-exchange shadow arbitrage routing."""
     global shadow_active
     shadow_active = False
