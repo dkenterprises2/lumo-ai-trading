@@ -49,6 +49,14 @@ logger.add(
 # 3. Intercept Standard Python Logging Handler (for Uvicorn, FastAPI, SQLAlchemy)
 class InterceptHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
+        # Filter out low-level driver and internal cursor debug spam
+        if record.name in ("asyncio", "urllib3", "aiosqlite", "sqlite3") and record.levelno < logging.INFO:
+            return
+
+        msg = record.getMessage()
+        if "functools.partial" in msg or "PRAGMA main." in msg or "sqlite3.Cursor" in msg or "sqlite3.Connection" in msg:
+            return
+
         try:
             level = logger.level(record.levelname).name
         except ValueError:
@@ -60,13 +68,18 @@ class InterceptHandler(logging.Handler):
             depth += 1
 
         logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
+            level, msg
         )
 
-# Intercept default logging root logger
-logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
-for log_name in ("uvicorn", "uvicorn.access", "fastapi", "sqlalchemy.engine"):
-    logging.getLogger(log_name).handlers = [InterceptHandler()]
+# Intercept default logging root logger at INFO level
+logging.basicConfig(handlers=[InterceptHandler()], level=logging.INFO, force=True)
+for log_name in ("uvicorn", "uvicorn.access", "fastapi"):
+    l = logging.getLogger(log_name)
+    l.handlers = [InterceptHandler()]
+    l.propagate = False
+
+for noisy_logger in ("sqlalchemy.engine", "aiosqlite", "urllib3", "asyncio"):
+    logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
 
 # Specialized Quantitative Trading Logger Helpers

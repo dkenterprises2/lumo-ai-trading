@@ -51,6 +51,22 @@ class ShadowOrderBook:
         "SOLUSDT": 215.0,
         "BNB/USDT": 685.0,
         "BNBUSDT": 685.0,
+        "AVAX/USDT": 28.50,
+        "AVAXUSDT": 28.50,
+        "DOGE/USDT": 0.125,
+        "DOGEUSDT": 0.125,
+        "LINK/USDT": 15.20,
+        "LINKUSDT": 15.20,
+        "ADA/USDT": 0.385,
+        "ADAUSDT": 0.385,
+        "DOT/USDT": 5.45,
+        "DOTUSDT": 5.45,
+        "XRP/USDT": 0.585,
+        "XRPUSDT": 0.585,
+        "MATIC/USDT": 0.425,
+        "MATICUSDT": 0.425,
+        "NEAR/USDT": 4.80,
+        "NEARUSDT": 4.80,
     }
 
     def __init__(self):

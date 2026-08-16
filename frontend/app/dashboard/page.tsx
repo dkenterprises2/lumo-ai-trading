@@ -16,6 +16,7 @@ import { SubscriptionLimitsCard } from "@/components/dashboard/SubscriptionLimit
 import { ManualTradingCard } from "@/components/dashboard/ManualTradingCard";
 import { InstitutionalModulesGrid } from "@/components/dashboard/InstitutionalModulesGrid";
 import { ModuleRegistryStatusWidget } from "@/components/dashboard/ModuleRegistryStatusWidget";
+import { PlatformSubsystemsHealthCard } from "@/components/dashboard/PlatformSubsystemsHealthCard";
 
 
 export default function InstitutionalDashboardPage() {
@@ -49,6 +50,9 @@ export default function InstitutionalDashboardPage() {
               </Link>
             </div>
           </div>
+
+          {/* Centralized Platform Subsystem Status Monitor */}
+          <PlatformSubsystemsHealthCard />
 
           {/* Metrics & Trading Limits Panel Grid */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

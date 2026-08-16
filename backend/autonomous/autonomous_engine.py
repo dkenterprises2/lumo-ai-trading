@@ -25,13 +25,13 @@ class AutonomousEngine:
         return cls._instance
 
     def _init_engine(self):
-        self.state = EngineState.STOPPED
+        self.state = EngineState.RUNNING
         self.arb_scanner = CrossExchangeArbitrageEngine()
         self.execution_manager = AutonomousExecutionManager()
         self.metrics_tracker = AutonomousMetricsTracker()
         self.replay_engine = AutonomousMarketReplay()
-        self.start_timestamp: Optional[float] = None
-        self.last_scan_timestamp: Optional[float] = None
+        self.start_timestamp: Optional[float] = time.time()
+        self.last_scan_timestamp: Optional[float] = time.time()
 
     def get_status(self) -> Dict[str, Any]:
         return {

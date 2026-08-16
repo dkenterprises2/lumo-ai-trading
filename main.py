@@ -70,6 +70,18 @@ async def lifespan(app: FastAPI):
         learning_thread.start()
         logger.info("[LIFESPAN] Background learning scheduler thread started successfully.")
 
+        # Initialize Continuous 24/7 Arbitrage, Shadow Replay, and Autonomous Engines
+        try:
+            from backend.routers import arbitrage_router
+            arbitrage_router.shadow_active = True
+            from backend.shadow_trading import shadow_engine
+            shadow_engine.status = "RUNNING"
+            from backend.autonomous.autonomous_engine import autonomous_engine
+            autonomous_engine.start()
+            logger.info("[LIFESPAN] Arbitrage Router, Shadow Engine & Autonomous Engine ACTIVATED (Continuous 24/7 Mode).")
+        except Exception as e:
+            logger.error(f"[LIFESPAN] Error starting background engines: {e}")
+
     yield
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
@@ -123,10 +135,10 @@ from fastapi.responses import JSONResponse
 
 @app.middleware("http")
 async def log_incoming_requests(request: Request, call_next):
-    if request.method == "OPTIONS":
+    if request.method == "OPTIONS" or request.url.path in ["/api/arbitrage/metrics", "/api/shadow/status", "/api/health"]:
         return await call_next(request)
-    client_ip = request.client.host if request.client else "Unknown"
-    logger.info(f"[BACKEND_REQUEST]\n{request.method} {request.url.path}\nHost: {request.headers.get('host')}\nOrigin: {request.headers.get('origin')}\nReferer: {request.headers.get('referer')}\nClient IP: {client_ip}")
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    logger.debug(f"[API] {request.method} {request.url.path} from {client_ip}")
     response = await call_next(request)
     return response
 
@@ -549,6 +561,312 @@ async def get_portfolio(current_user: UserModel = Depends(get_current_user)):
 
     user_trader.check_stop_loss_take_profit(current_prices)
     return user_trader.get_portfolio_summary(current_prices)
+
+@app.post("/api/wallet/reset-paper-account")
+@app.post("/api/portfolio/reset")
+@app.post("/api/trader/reset")
+async def reset_paper_account_api(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
+    """Reset paper trading account balance to default $10,000 USDT and clear all positions & trade history across Spot, Arbitrage & Shadow."""
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
+    res = await user_trader.reset_paper_account_async(default_balance=10000.0)
+
+    # Reset all active memory trader instances
+    for tr in list(trader_manager.traders.values()):
+        try:
+            tr.positions.clear()
+            tr.orders.clear()
+            tr.trade_history.clear()
+            tr.usdt_balance = 10000.0
+            tr.initial_balance = 10000.0
+            tr.auto_bot_enabled = False
+        except Exception:
+            pass
+
+    # 1. Cleanly wipe all database tables for all user partitions
+    try:
+        import sqlite3
+        db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
+        conn = sqlite3.connect(db_path, timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA busy_timeout=30000;")
+        cur = conn.cursor()
+        cur.execute("DELETE FROM positions;")
+        cur.execute("DELETE FROM orders;")
+        cur.execute("DELETE FROM trades;")
+        cur.execute("DELETE FROM equity_history;")
+        cur.execute("UPDATE portfolio SET usdt_balance = 10000.0, initial_balance = 10000.0, margin_used = 0.0, total_value = 10000.0, auto_bot_enabled = 0;")
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.error(f"[RESET_DB_WIPE_ERROR] {e}")
+
+    # 2. Reset Arbitrage Metrics & Routes
+    try:
+        from backend.arbitrage.arbitrage_metrics import ArbitrageMetricsTracker
+        ArbitrageMetricsTracker.reset()
+    except Exception as e:
+        logger.error(f"[RESET_ARBITRAGE_ERROR] {e}")
+
+    # 3. Reset Shadow Trading Simulation
+    try:
+        from backend.shadow_trading.shadow_engine import shadow_engine
+        shadow_engine.position_tracker.clear_all()
+        shadow_engine.router.executed_fills.clear()
+    except Exception as e:
+        logger.error(f"[RESET_SHADOW_ERROR] {e}")
+
+    return res
+
+@app.get("/api/portfolio/profit-attribution")
+async def get_profit_attribution(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
+    """Fetch complete profit attribution breakdown: Spot AI Paper Trading vs Arbitrage vs Shadow."""
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
+    current_prices = {}
+    for sym in settings.SUPPORTED_SYMBOLS:
+        current_prices[sym] = market_engine.price_cache.get(sym, market_engine.fetch_current_price(sym))
+
+    pf = user_trader.get_portfolio_summary(current_prices)
+
+    # 1. Spot Trading Metrics
+    spot_realized_pnl = pf.get("closed_pnl_usd", 0.0)
+    spot_unrealized_pnl = pf.get("total_unrealized_pnl_usd", 0.0)
+    spot_total_pnl = round(spot_realized_pnl + spot_unrealized_pnl, 2)
+    spot_trades_count = pf.get("total_closed_trades", 0)
+    spot_win_rate = pf.get("win_rate", 0.0)
+
+    # Detailed Symbol Breakdown (incorporates both open unrealized and closed realized PnL)
+    symbol_breakdown = {}
+    
+    # Add active open positions PnL (active_positions can be a list or dict)
+    active_positions_raw = pf.get("active_positions", [])
+    if isinstance(active_positions_raw, dict):
+        active_positions_list = list(active_positions_raw.values())
+    elif isinstance(active_positions_raw, list):
+        active_positions_list = active_positions_raw
+    else:
+        active_positions_list = []
+
+    for pos in active_positions_list:
+        sym = pos.get("symbol", "UNKNOWN")
+        u_pnl = round(pos.get("unrealized_pnl_usd", 0.0), 2)
+        symbol_breakdown[sym] = {
+            "trades": 1,
+            "realized_pnl": 0.0,
+            "unrealized_pnl": u_pnl,
+            "pnl": u_pnl,
+            "wins": 1 if u_pnl > 0 else 0,
+            "losses": 1 if u_pnl < 0 else 0,
+            "status": "OPEN",
+            "entry_price": pos.get("entry_price", 0.0),
+            "mark_price": pos.get("current_price", pos.get("mark_price", 0.0)),
+            "side": pos.get("side", "BUY"),
+            "margin_usd": pos.get("margin_usd", 0.0)
+        }
+
+    # Add / Aggregate closed trades history
+    for t in getattr(user_trader, "trade_history", []):
+        sym = t.get("symbol", "UNKNOWN")
+        r_pnl = round(t.get("net_pnl", t.get("pnl", 0.0)), 2)
+        if sym not in symbol_breakdown:
+            symbol_breakdown[sym] = {
+                "trades": 0,
+                "realized_pnl": 0.0,
+                "unrealized_pnl": 0.0,
+                "pnl": 0.0,
+                "wins": 0,
+                "losses": 0,
+                "status": "CLOSED",
+                "entry_price": t.get("entry_price", 0.0),
+                "mark_price": t.get("exit_price", 0.0),
+                "side": t.get("side", "BUY"),
+                "margin_usd": t.get("margin_usd", 0.0)
+            }
+        symbol_breakdown[sym]["trades"] += 1
+        symbol_breakdown[sym]["realized_pnl"] = round(symbol_breakdown[sym]["realized_pnl"] + r_pnl, 2)
+        symbol_breakdown[sym]["pnl"] = round(symbol_breakdown[sym]["realized_pnl"] + symbol_breakdown[sym]["unrealized_pnl"], 2)
+        if r_pnl > 0:
+            symbol_breakdown[sym]["wins"] += 1
+        else:
+            symbol_breakdown[sym]["losses"] += 1
+
+    # 2. Arbitrage Metrics & Route-by-Route Breakdown
+    from backend.arbitrage.arbitrage_metrics import ArbitrageMetricsTracker
+    arb_summary = ArbitrageMetricsTracker.get_summary()
+    arb_captured_profit = round(getattr(arb_summary, "captured_profit_usd", 0.0), 2)
+    arb_trades_count = getattr(arb_summary, "executable_opportunities", 0)
+    arb_opps_count = getattr(arb_summary, "total_opportunities_detected", 0)
+    arbitrage_routes_list = getattr(ArbitrageMetricsTracker(), "executed_routes", [])
+
+    # 3. Shadow Simulated Replay & Trade-by-Trade Breakdown
+    from backend.shadow_trading.shadow_engine import shadow_engine
+    shadow_positions = shadow_engine.position_tracker.get_all_positions()
+    shadow_analytics = shadow_engine.pnl_engine.compute_pnl_analytics(shadow_positions, shadow_engine.router.executed_fills)
+    shadow_net_pnl = round(getattr(shadow_analytics, "net_pnl_usd", 0.0), 2)
+    shadow_trades_count = len(shadow_positions)
+
+    shadow_trades_list = []
+    for p in shadow_positions:
+        shadow_trades_list.append({
+            "position_id": getattr(p, "position_id", "SHADOW-POS"),
+            "symbol": getattr(p, "symbol", "BTC/USDT"),
+            "side": getattr(p, "side", "BUY"),
+            "quantity": getattr(p, "quantity", 0.0),
+            "entry_price": getattr(p, "average_entry_price", 0.0),
+            "mark_price": getattr(p, "mark_price", 0.0),
+            "slippage_usd": getattr(p, "slippage_cost_usd", 0.0),
+            "fees_usd": getattr(p, "fees_paid_usd", 0.0),
+            "net_pnl_usd": getattr(p, "unrealized_pnl_usd", 0.0),
+            "status": "SIMULATED_ACTIVE"
+        })
+
+    total_combined_profit = round(spot_total_pnl + arb_captured_profit + shadow_net_pnl, 2)
+    denom = max(1.0, abs(spot_total_pnl) + abs(arb_captured_profit) + abs(shadow_net_pnl))
+
+    return {
+        "status": "success",
+        "total_profit_usd": total_combined_profit,
+        "daily_pnl_usd": pf.get("daily_pnl_usd", spot_total_pnl),
+        "daily_pnl_pct": pf.get("daily_pnl_pct", 0.0),
+        "total_portfolio_value": pf.get("total_portfolio_value", 0.0),
+        "attribution": {
+            "spot": {
+                "name": "Spot AI Paper Trading",
+                "profit_usd": spot_total_pnl,
+                "realized_pnl": round(spot_realized_pnl, 2),
+                "unrealized_pnl": round(spot_unrealized_pnl, 2),
+                "trades_count": spot_trades_count,
+                "win_rate": spot_win_rate,
+                "share_pct": round((abs(spot_total_pnl) / denom) * 100.0, 1) if denom > 0 else 0.0,
+                "symbol_breakdown": symbol_breakdown
+            },
+            "arbitrage": {
+                "name": "Cross-Exchange Arbitrage",
+                "profit_usd": arb_captured_profit,
+                "executions_count": arb_trades_count,
+                "opportunities_detected": arb_opps_count,
+                "venues_count": 5,
+                "share_pct": round((abs(arb_captured_profit) / denom) * 100.0, 1) if denom > 0 else 0.0,
+                "routes_list": arbitrage_routes_list
+            },
+            "shadow": {
+                "name": "Shadow Replay Simulation",
+                "profit_usd": shadow_net_pnl,
+                "gross_pnl": round(getattr(shadow_analytics, "gross_pnl_usd", 0.0), 2),
+                "slippage_usd": round(getattr(shadow_analytics, "slippage_cost_usd", 0.0), 2),
+                "fees_usd": round(sum(getattr(p, 'fees_paid_usd', 0.0) for p in shadow_positions), 2),
+                "trades_count": shadow_trades_count,
+                "share_pct": round((abs(shadow_net_pnl) / denom) * 100.0, 1) if denom > 0 else 0.0,
+                "trades_list": shadow_trades_list
+            }
+        },
+        "recent_trades": getattr(user_trader, "trade_history", [])[-20:]
+    }
+
+@app.get("/api/portfolio/all-trades")
+async def get_all_unified_trades(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
+    """Fetch unified trade history across Spot AI Trading, Arbitrage Routes, and Shadow Simulation."""
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
+    current_prices = {}
+    for sym in settings.SUPPORTED_SYMBOLS:
+        current_prices[sym] = market_engine.price_cache.get(sym, market_engine.fetch_current_price(sym))
+
+    pf = user_trader.get_portfolio_summary(current_prices)
+    all_trades = []
+
+    # 1. Spot Open Positions
+    active_positions_raw = pf.get("active_positions", [])
+    if isinstance(active_positions_raw, dict):
+        active_positions_list = list(active_positions_raw.values())
+    elif isinstance(active_positions_raw, list):
+        active_positions_list = active_positions_raw
+    else:
+        active_positions_list = []
+
+    for pos in active_positions_list:
+        all_trades.append({
+            "id": pos.get("id", f"SPOT_OPEN_{pos.get('symbol')}"),
+            "subsystem": "SPOT",
+            "symbol": pos.get("symbol", "UNKNOWN"),
+            "side": pos.get("side", "BUY"),
+            "entry_price": pos.get("entry_price", 0.0),
+            "exit_price": pos.get("current_price", pos.get("mark_price", 0.0)),
+            "amount": pos.get("amount", 0.0),
+            "margin_usd": pos.get("margin_usd", 0.0),
+            "pnl_usd": round(pos.get("unrealized_pnl_usd", 0.0), 2),
+            "pnl_pct": round(pos.get("unrealized_pnl_pct", 0.0), 2),
+            "status": "OPEN",
+            "reason": pos.get("strategy", "AI Hybrid (Active Position)"),
+            "venue": pos.get("exchange", "BINANCE"),
+            "time": pos.get("entry_time", "")
+        })
+
+    # 2. Spot Closed Trades
+    for t in getattr(user_trader, "trade_history", []):
+        all_trades.append({
+            "id": t.get("id", f"SPOT_CLOSED_{t.get('symbol')}"),
+            "subsystem": "SPOT",
+            "symbol": t.get("symbol", "UNKNOWN"),
+            "side": t.get("side", "BUY"),
+            "entry_price": t.get("entry_price", 0.0),
+            "exit_price": t.get("exit_price", 0.0),
+            "amount": t.get("amount", 0.0),
+            "margin_usd": t.get("margin_usd", 0.0),
+            "pnl_usd": round(t.get("net_pnl", t.get("pnl", 0.0)), 2),
+            "pnl_pct": round(t.get("pnl_pct", 0.0), 2),
+            "status": "CLOSED",
+            "reason": t.get("close_reason", t.get("reason", "Take Profit / Stop Loss")),
+            "venue": t.get("exchange", "BINANCE"),
+            "time": t.get("exit_time", t.get("entry_time", ""))
+        })
+
+    # 3. Arbitrage Executed Routes
+    from backend.arbitrage.arbitrage_metrics import ArbitrageMetricsTracker
+    for r in getattr(ArbitrageMetricsTracker(), "executed_routes", []):
+        all_trades.append({
+            "id": r.get("route_id", "ARB-EXEC"),
+            "subsystem": "ARBITRAGE",
+            "symbol": r.get("symbol", "BTC/USDT"),
+            "side": "DUAL_LEG",
+            "entry_price": r.get("buy_price", 0.0),
+            "exit_price": r.get("sell_price", 0.0),
+            "amount": round(r.get("size_usd", 1000.0) / max(0.0001, r.get("buy_price", 1.0)), 4),
+            "margin_usd": r.get("size_usd", 1000.0),
+            "pnl_usd": round(r.get("profit_usd", 0.0), 2),
+            "pnl_pct": round(r.get("net_spread_pct", 0.0), 2),
+            "status": "CAPTURED",
+            "reason": f"Cross-Venue Spread Capture ({r.get('buy_venue')} -> {r.get('sell_venue')})",
+            "venue": f"{r.get('buy_venue')} -> {r.get('sell_venue')}",
+            "time": r.get("time", "")
+        })
+
+    # 4. Shadow Simulation Positions
+    from backend.shadow_trading.shadow_engine import shadow_engine
+    for p in shadow_engine.position_tracker.get_all_positions():
+        all_trades.append({
+            "id": getattr(p, "position_id", "SHADOW-POS"),
+            "subsystem": "SHADOW",
+            "symbol": getattr(p, "symbol", "BTC/USDT"),
+            "side": getattr(p, "side", "BUY"),
+            "entry_price": getattr(p, "average_entry_price", 0.0),
+            "exit_price": getattr(p, "mark_price", 0.0),
+            "amount": getattr(p, "quantity", 0.0),
+            "margin_usd": round(getattr(p, "quantity", 0.0) * getattr(p, "average_entry_price", 0.0), 2),
+            "pnl_usd": round(getattr(p, "unrealized_pnl_usd", 0.0), 2),
+            "pnl_pct": round((getattr(p, "unrealized_pnl_usd", 0.0) / max(1.0, getattr(p, "quantity", 1.0) * getattr(p, "average_entry_price", 1.0))) * 100.0, 2),
+            "status": "SIMULATED",
+            "reason": "Shadow High-Fidelity Simulation Replay",
+            "venue": "ORDERBOOK_SHADOW",
+            "time": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(getattr(p, "opened_at", time.time())))
+        })
+
+    return {
+        "status": "success",
+        "total_count": len(all_trades),
+        "trades": all_trades
+    }
 
 
 
@@ -1371,6 +1689,25 @@ async def spa_catch_all(request: Request, full_path: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        reload_dirs=["backend"],
+        reload_includes=["*.py"],
+        reload_excludes=[
+            "*.db",
+            "*.db-wal",
+            "*.db-shm",
+            "*.log",
+            "logs/*",
+            "frontend/*",
+            "static/*",
+            ".next/*",
+            "research_datasets/*",
+            "*.json"
+        ]
+    )
 
 

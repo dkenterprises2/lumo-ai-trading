@@ -62,3 +62,6 @@ class ShadowPositionTracker:
 
     def get_all_positions(self) -> List[ShadowPosition]:
         return list(self._positions.values())
+
+    def clear_all(self):
+        self._positions.clear()

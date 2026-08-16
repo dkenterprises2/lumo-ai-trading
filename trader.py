@@ -44,7 +44,10 @@ class PaperTrader:
         self.equity_history: List[Dict[str, Any]] = []
         self.ledger: List[Dict[str, Any]] = []
         self.last_equity_save_time = 0.0
-        self.auto_bot_enabled = True
+        self.auto_bot_enabled = False
+        self.arbitrage_shadow_enabled = True
+        self.shadow_replay_enabled = True
+        self.autonomous_engine_enabled = True
 
         self.risk_mode = getattr(settings, "DEFAULT_RISK_MODE", "Moderate")
         self.active_strategy = "AI Hybrid"
@@ -100,10 +103,12 @@ class PaperTrader:
         else:
             plan_max = 50
 
-
-        # Respect current user preference if set, up to plan ceiling
+        # Respect current user preference if set; default to plan max (50) for Institutional if legacy 10
         current = getattr(self, "max_open_positions", plan_max)
-        limit = min(max(current, 1), plan_max)
+        if ("ENTERPRISE" in p or "INSTITUTIONAL" in p or not plan_name) and current <= 10:
+            limit = plan_max
+        else:
+            limit = min(max(current, 1), plan_max)
 
         self.max_open_positions = limit
         if hasattr(self, "risk_manager") and hasattr(self.risk_manager, "config"):
@@ -143,11 +148,10 @@ class PaperTrader:
 
     async def initialize_and_restore_state(self):
         """Restore trader state from database on startup following strict state machine transitions."""
-        logger.info(f"[STATE_TRANSITION] Current state: {self.state} -> Changing to RESTORING_DATABASE")
         if self.is_loaded and self.state == TraderState.READY:
-            logger.info("[STARTUP] Already in READY state, skipping restore.")
             return
 
+        logger.info(f"[STATE_TRANSITION] UserID={self.user_id} Current state: {self.state} -> Changing to RESTORING_DATABASE")
         self.state = TraderState.RESTORING_DATABASE
         await self.repo.initialize_repository()
 
@@ -163,11 +167,14 @@ class PaperTrader:
             self.default_leverage = portfolio_state.get("default_leverage", 1)
 
             if portfolio_state.get("max_concurrent_trades"):
-                self.max_open_positions = portfolio_state["max_concurrent_trades"]
+                saved_max = portfolio_state["max_concurrent_trades"]
+                if saved_max <= 10:
+                    saved_max = 50
+                self.max_open_positions = saved_max
                 if hasattr(self, "risk_manager") and hasattr(self.risk_manager, "config"):
-                    self.risk_manager.config.max_concurrent_trades = portfolio_state["max_concurrent_trades"]
-                    self.risk_manager.config.max_exposure_ratio = max(50.0, float(portfolio_state["max_concurrent_trades"] * 2.0))
-                    self.risk_manager.config.correlation_group_limit = portfolio_state["max_concurrent_trades"]
+                    self.risk_manager.config.max_concurrent_trades = saved_max
+                    self.risk_manager.config.max_exposure_ratio = max(50.0, float(saved_max * 2.0))
+                    self.risk_manager.config.correlation_group_limit = saved_max
 
             if portfolio_state.get("max_capital_per_trade_pct"):
                 self.max_capital_per_trade_pct = portfolio_state["max_capital_per_trade_pct"]
@@ -505,6 +512,8 @@ class PaperTrader:
 
             total_open_margin += margin
             total_unrealized_pnl += pnl_usd
+            pos['unrealized_pnl_usd'] = round(pnl_usd, 2)
+            pos['unrealized_pnl'] = round(pnl_usd, 2)
 
             active_positions_list.append({
                 "id": pos['id'],
@@ -1072,35 +1081,40 @@ class PaperTrader:
         self.ledger.append(init_tx)
 
         try:
-            from backend.database.session import AsyncSessionLocal
-            from sqlalchemy import text
+            import sqlite3
+            from config import settings
+            db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
+            conn = sqlite3.connect(db_path, timeout=30.0)
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.execute("PRAGMA busy_timeout=30000;")
+            cursor = conn.cursor()
 
-            async with AsyncSessionLocal() as session:
-                if self.user_id is not None:
-                    await session.execute(text("DELETE FROM positions WHERE user_id = :uid OR user_id IS NULL"), {"uid": self.user_id})
-                    await session.execute(text("DELETE FROM orders WHERE user_id = :uid OR user_id IS NULL"), {"uid": self.user_id})
-                    await session.execute(text("DELETE FROM trades WHERE user_id = :uid OR user_id IS NULL"), {"uid": self.user_id})
-                    await session.execute(text("DELETE FROM equity_history WHERE user_id = :uid OR user_id IS NULL"), {"uid": self.user_id})
-                    await session.execute(text("DELETE FROM wallet_transactions WHERE user_id = :uid OR user_id IS NULL"), {"uid": self.user_id})
-                    await session.execute(
-                        text("UPDATE portfolio SET usdt_balance = :bal, initial_balance = :bal, margin_used = 0.0, total_value = :bal, auto_bot_enabled = 0 WHERE user_id = :uid OR user_id IS NULL"),
-                        {"bal": default_balance, "uid": self.user_id}
-                    )
-                else:
-                    await session.execute(text("DELETE FROM positions"))
-                    await session.execute(text("DELETE FROM orders"))
-                    await session.execute(text("DELETE FROM trades"))
-                    await session.execute(text("DELETE FROM equity_history"))
-                    await session.execute(text("DELETE FROM wallet_transactions"))
-                    await session.execute(
-                        text("UPDATE portfolio SET usdt_balance = :bal, initial_balance = :bal, margin_used = 0.0, total_value = :bal, auto_bot_enabled = 0"),
-                        {"bal": default_balance}
-                    )
+            if self.user_id is not None:
+                cursor.execute("DELETE FROM positions WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
+                cursor.execute("DELETE FROM orders WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
+                cursor.execute("DELETE FROM trades WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
+                cursor.execute("DELETE FROM equity_history WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
+                cursor.execute("DELETE FROM wallet_transactions WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
+                cursor.execute(
+                    "UPDATE portfolio SET usdt_balance = ?, initial_balance = ?, margin_used = 0.0, total_value = ?, auto_bot_enabled = 0 WHERE user_id = ? OR user_id IS NULL",
+                    (default_balance, default_balance, default_balance, self.user_id)
+                )
+            else:
+                cursor.execute("DELETE FROM positions")
+                cursor.execute("DELETE FROM orders")
+                cursor.execute("DELETE FROM trades")
+                cursor.execute("DELETE FROM equity_history")
+                cursor.execute("DELETE FROM wallet_transactions")
+                cursor.execute(
+                    "UPDATE portfolio SET usdt_balance = ?, initial_balance = ?, margin_used = 0.0, total_value = ?, auto_bot_enabled = 0",
+                    (default_balance, default_balance, default_balance)
+                )
 
-                await session.commit()
-                logger.info(f"[RESET_PAPER_ACCOUNT] Wiped database records & reset balance to ${default_balance:.2f} for user_id={self.user_id}")
+            conn.commit()
+            conn.close()
+            logger.info(f"[RESET_PAPER_ACCOUNT] Cleanly wiped database records & reset balance to ${default_balance:.2f} for user_id={self.user_id}")
         except Exception as e:
-            logger.error(f"[RESET_PAPER_ACCOUNT] Async DB wipe error for user_id={self.user_id}: {e}", exc_info=True)
+            logger.error(f"[RESET_PAPER_ACCOUNT] Direct DB wipe error for user_id={self.user_id}: {e}", exc_info=True)
 
         await self.save_portfolio_async()
         await self.record_wallet_tx_async(init_tx)

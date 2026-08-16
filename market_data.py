@@ -69,20 +69,56 @@ class MarketDataEngine:
 
         # Baseline reference table (used ONLY as emergency fallback for un-traded symbols)
         self.emergency_baselines = {
-            "BTC/USDT": ("bitcoin", 65000.0),
-            "ETH/USDT": ("ethereum", 3400.0),
-            "SOL/USDT": ("solana", 180.0),
-            "BNB/USDT": ("binancecoin", 580.0),
+            "BTC/USDT": ("bitcoin", 118450.0),
+            "ETH/USDT": ("ethereum", 3410.0),
+            "SOL/USDT": ("solana", 182.0),
+            "BNB/USDT": ("binancecoin", 582.0),
             "XRP/USDT": ("ripple", 0.60),
             "ADA/USDT": ("cardano", 0.45),
-            "DOGE/USDT": ("dogecoin", 0.12),
-            "AVAX/USDT": ("avalanche-2", 28.0),
-            "LINK/USDT": ("chainlink", 15.0),
-            "ARB/USDT": ("arbitrum", 0.80),
-            "SUI/USDT": ("sui", 1.80),
-            "INJ/USDT": ("injective-protocol", 22.0),
-            "TIA/USDT": ("celestia", 0.34),
-            "FET/USDT": ("artificial-superintelligence-alliance", 1.40)
+            "DOGE/USDT": ("dogecoin", 0.124),
+            "AVAX/USDT": ("avalanche-2", 28.15),
+            "LINK/USDT": ("chainlink", 15.20),
+            "ARB/USDT": ("arbitrum", 0.82),
+            "SUI/USDT": ("sui", 1.84),
+            "INJ/USDT": ("injective-protocol", 22.50),
+            "TIA/USDT": ("celestia", 5.34),
+            "FET/USDT": ("artificial-superintelligence-alliance", 1.40),
+            "PEPE/USDT": ("pepe", 0.00000850),
+            "SHIB/USDT": ("shiba-inu", 0.00001420),
+            "FLOKI/USDT": ("floki", 0.00002030),
+            "BONK/USDT": ("bonk", 0.00001850),
+            "MATIC/USDT": ("matic-network", 0.42),
+            "DOT/USDT": ("polkadot", 4.50),
+            "NEAR/USDT": ("near", 4.80),
+            "ATOM/USDT": ("cosmos", 4.60),
+            "APT/USDT": ("aptos", 8.20),
+            "OP/USDT": ("optimism", 1.45),
+            "LTC/USDT": ("litecoin", 68.0),
+            "ETC/USDT": ("ethereum-classic", 19.5),
+            "XLM/USDT": ("stellar", 0.098),
+            "FIL/USDT": ("filecoin", 3.80),
+            "UNI/USDT": ("uniswap", 7.20),
+            "ICP/USDT": ("internet-computer", 7.80),
+            "RNDR/USDT": ("render-token", 5.60),
+            "AAVE/USDT": ("aave", 152.0),
+            "MKR/USDT": ("maker", 1850.0),
+            "SNX/USDT": ("synthetix-network-token", 1.40),
+            "ALGO/USDT": ("algorand", 0.135),
+            "THETA/USDT": ("theta-token", 1.25),
+            "AXS/USDT": ("axie-infinity", 4.80),
+            "EGLD/USDT": ("elrond-erd-2", 28.0),
+            "EOS/USDT": ("eos", 0.52),
+            "FLOW/USDT": ("flow", 0.58),
+            "KAVA/USDT": ("kava", 0.32),
+            "MINA/USDT": ("mina-protocol", 0.54),
+            "QNT/USDT": ("quant-network", 72.0),
+            "RUNE/USDT": ("thorchain", 4.20),
+            "WOO/USDT": ("woo-network", 0.185),
+            "CRV/USDT": ("curve-dao-token", 0.28),
+            "LDO/USDT": ("lido-dao", 1.15),
+            "GRT/USDT": ("the-graph", 0.155),
+            "FTM/USDT": ("fantom", 0.65),
+            "SAND/USDT": ("the-sandbox", 0.28)
         }
 
         # Initialize persistent market_prices table on engine startup
@@ -301,23 +337,24 @@ class MarketDataEngine:
 
         return candidate_price
 
-    def fetch_current_price(self, symbol: str) -> float:
+    def fetch_current_price(self, symbol: str, force_refresh: bool = False) -> float:
         """4-Tier Fallback Hierarchy with Multi-Provider Consensus & Thread-Safety."""
         symbol = normalize_symbol(symbol)
         now = time.time()
 
-        # Step 6: 10-second TTL Memory Cache check
-        with self._lock:
-            if symbol in self.price_cache and (now - self.price_cache_time.get(symbol, 0)) < 10.0:
-                cached_val = self.price_cache[symbol]
-                if is_valid_price(cached_val):
-                    return cached_val
+        # Step 6: 1.0-second TTL Memory Cache check (bypassed if force_refresh=True for instant news reaction)
+        if not force_refresh:
+            with self._lock:
+                if symbol in self.price_cache and (now - self.price_cache_time.get(symbol, 0)) < 1.0:
+                    cached_val = self.price_cache[symbol]
+                    if is_valid_price(cached_val):
+                        return cached_val
 
         binance_price: Optional[float] = None
         coingecko_price: Optional[float] = None
 
-        # 1. Primary: Direct Binance Public REST Ticker (Fast, non-blocking 50ms HTTP endpoint)
-        if not self.binance_disabled or (now - self.last_binance_error) > 5.0:
+        # 1. Primary: Direct Binance Public REST Ticker (Fast, non-blocking 50ms HTTP endpoint with 1.0s retry cooldown)
+        if not self.binance_disabled or (now - self.last_binance_error) > 1.0:
             try:
                 sym_clean = symbol.replace("/", "")
                 resp = requests.get(f"https://api.binance.com/api/v3/ticker/price?symbol={sym_clean}", timeout=(0.2, 0.5))
@@ -392,7 +429,8 @@ class MarketDataEngine:
 
         if is_valid_price(base_cached):
             drift = base_cached * (np.random.uniform(-0.0004, 0.0004))
-            dynamic_price = round(max(0.0001, base_cached + drift), 4 if base_cached < 10 else 2)
+            raw_p = max(1e-8, base_cached + drift)
+            dynamic_price = round(raw_p, 8 if raw_p < 0.001 else (6 if raw_p < 0.1 else (4 if raw_p < 10 else 2)))
             with self._lock:
                 self.price_cache[symbol] = dynamic_price
                 self.price_cache_time[symbol] = now
@@ -403,26 +441,14 @@ class MarketDataEngine:
         # Tier 4: Emergency Default Baseline
         if is_valid_price(default_price):
             drift = default_price * (np.random.uniform(-0.0004, 0.0004))
-            emergency_price = round(max(0.0001, default_price + drift), 4 if default_price < 10 else 2)
+            raw_p = max(1e-8, default_price + drift)
+            emergency_price = round(raw_p, 8 if raw_p < 0.001 else (6 if raw_p < 0.1 else (4 if raw_p < 10 else 2)))
             with self._lock:
                 self.price_cache[symbol] = emergency_price
                 self.price_cache_time[symbol] = now
                 self.price_source_cache[symbol] = "EMERGENCY"
             self._persist_market_price(symbol, emergency_price, "EMERGENCY")
-            logger.warning(f"[EMERGENCY_FALLBACK] Symbol={symbol} No cache/DB record found. Initialized emergency baseline ${emergency_price:.4f}")
-            return emergency_price
-
-
-        # Tier 4: Emergency Default Baseline
-        if is_valid_price(default_price):
-            drift = default_price * (np.random.uniform(-0.0004, 0.0004))
-            emergency_price = round(max(0.0001, default_price + drift), 4 if default_price < 10 else 2)
-            with self._lock:
-                self.price_cache[symbol] = emergency_price
-                self.price_cache_time[symbol] = now
-                self.price_source_cache[symbol] = "EMERGENCY"
-            self._persist_market_price(symbol, emergency_price, "EMERGENCY")
-            logger.warning(f"[EMERGENCY_FALLBACK] Symbol={symbol} No cache/DB record found. Initialized emergency baseline ${emergency_price:.4f}")
+            logger.warning(f"[EMERGENCY_FALLBACK] Symbol={symbol} No cache/DB record found. Initialized emergency baseline ${emergency_price}")
             return emergency_price
 
         # Step 7: Freeze symbol if all providers and caches fail

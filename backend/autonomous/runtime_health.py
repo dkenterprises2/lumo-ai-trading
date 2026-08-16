@@ -72,6 +72,12 @@ class RuntimeHealthWatchdog:
         if component in self.subsystems:
             self.subsystems[component].record_restart()
 
+    def heartbeat_all(self, status: Optional[str] = None):
+        """Touch and refresh heartbeats for all registered subsystems."""
+        for comp in list(self.subsystems.keys()):
+            st = status if status else ("CONNECTED" if comp == "websocket" else ("HEALTHY" if comp in ["database", "risk_engine", "governance_engine", "news_intelligence", "arbitrage_engine"] else "RUNNING"))
+            self.subsystems[comp].update(st)
+
     def get_runtime_health(self) -> Dict[str, Any]:
         now = time.time()
         health_map = {}

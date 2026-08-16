@@ -8,6 +8,7 @@ export interface User {
   name: string;
   email: string;
   avatar: string;
+  currency?: string;
   timezone: string;
   trading_mode: string;
   role?: string;
@@ -186,7 +187,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error(detailMsg || 'Profile update failed');
     }
 
-    setUser(data.user);
+    if (data.user) {
+      setUser(data.user);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('lumo_user_data', JSON.stringify(data.user));
+        if (data.user.currency) {
+          localStorage.setItem('lumo_preferred_currency', data.user.currency.toUpperCase());
+        }
+        if (data.user.avatar) {
+          localStorage.setItem('lumo_user_avatar', data.user.avatar);
+        }
+      }
+    }
   };
 
   const refetchUser = async () => {

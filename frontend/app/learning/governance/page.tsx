@@ -43,6 +43,15 @@ export default function GovernancePage() {
   const approvals = reportQuery.data?.recent_governance_approvals || [];
   const versionHistory = weightsQuery.data?.version_history || [];
 
+  React.useEffect(() => {
+    if (versionHistory && versionHistory.length > 0) {
+      const activeObj = versionHistory.find((v: any) => v.is_active);
+      if (activeObj) {
+        setRollbackVersion(String(activeObj.version));
+      }
+    }
+  }, [versionHistory]);
+
   const handleRollback = async () => {
     const ver = parseInt(rollbackVersion, 10);
     if (isNaN(ver) || ver < 1) return;
@@ -50,15 +59,25 @@ export default function GovernancePage() {
     setIsProcessing(true);
     setActionFeedback(null);
     try {
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
       const res = await fetch("/api/learning/revert-weights", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ version: ver, strategy_name: "AI_HYBRID", market_regime: "NEUTRAL" })
       });
       const data = await res.json();
-      setActionFeedback(`Instant 1-second Rollback Successful! Active weights restored to Version ${ver}.`);
-      weightsQuery.refetch();
-      reportQuery.refetch();
+      if (data.status === "error") {
+        setActionFeedback(`Rollback error: ${data.message}`);
+      } else {
+        setActionFeedback(`Instant 1-second Rollback Successful! Active weights restored to Version ${ver}.`);
+        weightsQuery.refetch();
+        reportQuery.refetch();
+      }
     } catch (err: any) {
       setActionFeedback(`Rollback error: ${err.message}`);
     } finally {

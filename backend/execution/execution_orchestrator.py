@@ -18,6 +18,8 @@ from .execution_telemetry import ExecutionTelemetry
 from .pre_trade_checks import PreTradeChecksEngine
 from .post_trade_processing import PostTradeProcessingEngine
 
+from .execution_planner import execution_planner, AutonomousExecutionPlanner
+
 class ExecutionOrchestrator:
     """Master Institutional OMS / EMS Execution Orchestrator Singleton."""
 
@@ -37,6 +39,7 @@ class ExecutionOrchestrator:
         self.telemetry = ExecutionTelemetry()
         self.pre_trade_checks = PreTradeChecksEngine()
         self.post_trade_processing = PostTradeProcessingEngine()
+        self.execution_planner = execution_planner
 
     def submit_order(
         self,
@@ -46,7 +49,10 @@ class ExecutionOrchestrator:
         quantity: float,
         order_type: str = "MARKET",
         price: Optional[float] = None,
-        exchange: Optional[str] = None
+        exchange: Optional[str] = None,
+        urgency: str = "NORMAL",
+        is_arbitrage: bool = False,
+        execution_mode: str = "PAPER"
     ) -> Dict[str, Any]:
         """Single Gateway for Order Creation & Execution."""
         # 1. Create Order in DRAFT state
@@ -61,6 +67,29 @@ class ExecutionOrchestrator:
         )
         sm = OrderStateMachine(order.order_id, OrderState.DRAFT)
         self.repository.save_order(order)
+
+        # 2. Generate Execution Plan via Autonomous Execution Planner
+        curr_price = price if (price and price > 0) else 50000.0
+        plan = self.execution_planner.plan_order_execution(
+            order_id=order.order_id,
+            user_id=str(user_id),
+            symbol=symbol,
+            side=side,
+            quantity=quantity,
+            current_price=curr_price,
+            book_depth_usd=50000.0,
+            volatility_pct=2.0,
+            urgency=urgency,
+            is_arbitrage=is_arbitrage,
+            execution_mode=execution_mode
+        )
+        order.metadata["execution_plan"] = plan.to_dict()
+
+        if plan.status == "REJECTED":
+            sm.transition_to(OrderState.REJECTED, reason=plan.reason)
+            order.status = sm.current_state.value
+            self.repository.save_order(order)
+            return {"status": "rejected", "reason": plan.reason, "order": order.to_dict(), "plan": plan.to_dict()}
 
         # 2. Validate Order
         sm.transition_to(OrderState.VALIDATED, reason="Pre-trade validation passed")

@@ -25,16 +25,17 @@ class ArbitrageMetricsTracker:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(ArbitrageMetricsTracker, cls).__new__(cls)
-            cls._instance.scanned_routes = 240
-            cls._instance.detected_count = 148
-            cls._instance.executable_count = 24
-            cls._instance.profitable_before_fees = 112
-            cls._instance.profitable_after_fees = 32
-            cls._instance.rejected_fees = 80
-            cls._instance.rejected_slippage = 8
-            cls._instance.rejected_risk = 5
-            cls._instance.rejected_gov = 3
-            cls._instance.captured_profit = 1240.50
+            cls._instance.scanned_routes = 0
+            cls._instance.detected_count = 0
+            cls._instance.executable_count = 0
+            cls._instance.profitable_before_fees = 0
+            cls._instance.profitable_after_fees = 0
+            cls._instance.rejected_fees = 0
+            cls._instance.rejected_slippage = 0
+            cls._instance.rejected_risk = 0
+            cls._instance.rejected_gov = 0
+            cls._instance.captured_profit = 0.0
+            cls._instance.executed_routes = []
         return cls._instance
 
     def record_opportunity(self, is_executable: bool, net_spread: float, rejected_reason: str = None):
@@ -51,8 +52,27 @@ class ArbitrageMetricsTracker:
             elif "gov" in rejected_reason.lower():
                 self.rejected_gov += 1
 
-    def record_shadow_execution(self, profit_usd: float):
+    def record_shadow_execution(self, profit_usd: float, route_details: Dict[str, Any] = None):
         self.captured_profit += max(0.0, profit_usd)
+        if not hasattr(self, "executed_routes"):
+            self.executed_routes = []
+        if route_details:
+            self.executed_routes.append(route_details)
+
+    @classmethod
+    def reset(cls):
+        inst = cls()
+        inst.scanned_routes = 0
+        inst.detected_count = 0
+        inst.executable_count = 0
+        inst.profitable_before_fees = 0
+        inst.profitable_after_fees = 0
+        inst.rejected_fees = 0
+        inst.rejected_slippage = 0
+        inst.rejected_risk = 0
+        inst.rejected_gov = 0
+        inst.captured_profit = 0.0
+        inst.executed_routes = []
 
     @classmethod
     def get_summary(cls) -> ArbitrageMetricsSummary:

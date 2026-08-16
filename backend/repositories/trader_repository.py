@@ -23,22 +23,8 @@ class TraderRepository:
         pass
 
     async def initialize_repository(self):
-        """Ensure database tables exist and apply schema migrations on startup."""
+        """Ensure database tables exist and apply schema migrations on startup (idempotent)."""
         await init_db()
-        async with AsyncSessionLocal() as session:
-            try:
-                from sqlalchemy import text
-                await session.execute(text("ALTER TABLE portfolio ADD COLUMN default_allocation_usd FLOAT DEFAULT 1000.0"))
-                await session.commit()
-            except Exception:
-                await session.rollback()
-
-            try:
-                from sqlalchemy import text
-                await session.execute(text("ALTER TABLE portfolio ADD COLUMN default_leverage INTEGER DEFAULT 1"))
-                await session.commit()
-            except Exception:
-                await session.rollback()
 
 
     async def load_portfolio_state(self, user_id: Optional[int] = None) -> Optional[Dict[str, Any]]:

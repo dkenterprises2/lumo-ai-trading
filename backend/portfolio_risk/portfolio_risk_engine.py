@@ -81,28 +81,33 @@ class InstitutionalPortfolioRiskEngine:
         corr_res = self.correlation_engine.analyze_positions_correlation(positions, eq)
         conc_res = self.concentration_engine.evaluate_concentration(positions, eq)
 
-        # 3. Portfolio Heat Analysis
-        heat_res = self.heat_engine.compute_heat(positions, eq, corr_res["correlation_risk_score"])
-
-        # 4. Volatility Analysis
-        vol_res = self.volatility_engine.analyze_volatility(atr_pct=2.0, realized_vol_pct=25.0)
-
-        # 5. Streak Analysis
-        streak_res = self.streak_engine.analyze_streaks(trade_history)
-
-        # 6. Regime Analysis
-        regime_res = self.regime_engine.evaluate_regime_risk("BULL")
-
-        # 7. Risk Budget Analysis
-        budget_res = self.budget_tracker.compute_budget(user_trader.initial_balance, daily_pnl)
-
-        # 8. Dynamic Trade Limit Analysis
+        # 3. Dynamic Trade Limit & Heat Scaling
         configured_max = getattr(user_trader, 'max_open_positions', 10)
         if hasattr(user_trader, 'risk_manager') and hasattr(user_trader.risk_manager, 'config'):
             configured_max = getattr(user_trader.risk_manager.config, 'max_concurrent_trades', configured_max)
         if not configured_max or configured_max <= 0:
             configured_max = 10
 
+        user_daily_loss = getattr(user_trader, 'daily_loss_limit_pct', 5.0) or 5.0
+        # Dynamically scale risk budget with configured capacity (e.g. 50 trades capacity allows proportional heat budget)
+        scaled_heat_budget = max(5.0, (configured_max / 10.0) * user_daily_loss)
+
+        # 4. Portfolio Heat Analysis with Scaled Capacity Budget
+        heat_res = self.heat_engine.compute_heat(positions, eq, corr_res["correlation_risk_score"], risk_budget_pct=scaled_heat_budget)
+
+        # 5. Volatility Analysis
+        vol_res = self.volatility_engine.analyze_volatility(atr_pct=2.0, realized_vol_pct=25.0)
+
+        # 6. Streak Analysis
+        streak_res = self.streak_engine.analyze_streaks(trade_history)
+
+        # 7. Regime Analysis
+        regime_res = self.regime_engine.evaluate_regime_risk("BULL")
+
+        # 8. Risk Budget Analysis
+        budget_res = self.budget_tracker.compute_budget(user_trader.initial_balance, daily_pnl)
+
+        # 9. Dynamic Trade Limit Analysis
         limit_res = self.limit_engine.compute_effective_limit(
             user_configured_max_positions=configured_max,
             currently_open_positions=len(positions),
@@ -113,23 +118,21 @@ class InstitutionalPortfolioRiskEngine:
             daily_loss_used_pct=budget_res.used_today_pct,
             max_daily_loss_pct=budget_res.daily_budget_pct,
             is_kill_switch_halted=(self.kill_switch.state == "HALTED")
-
         )
 
-
-        # 9. Evaluate Kill Switch Triggers
+        # 10. Evaluate Kill Switch Triggers
         ks_status = self.kill_switch.evaluate_triggers(
             daily_loss_breached=budget_res.status == "EXHAUSTED",
             drawdown_breached=dd_adj.trading_status == "HALTED",
-            portfolio_heat_critical=heat_res.status == "CRITICAL"
+            portfolio_heat_critical=(heat_res.status == "CRITICAL" and len(positions) >= configured_max)
         )
 
         # Overall Status & Risk Score Calculation
         overall_status = "HEALTHY"
-        if ks_status.is_active:
+        if ks_status.is_active or dd_adj.trading_status == "HALTED":
             overall_status = "HALTED"
-        elif heat_res.status == "CRITICAL" or dd_adj.trading_status == "HALTED":
-            overall_status = "HALTED"
+        elif heat_res.status == "CRITICAL" or ks_status.state == "RESTRICTED":
+            overall_status = "RESTRICTED"
         elif heat_res.status in ["HIGH", "WARNING"] or budget_res.status == "WARNING":
             overall_status = "WARNING"
 

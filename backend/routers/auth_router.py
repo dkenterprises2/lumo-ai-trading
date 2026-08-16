@@ -55,6 +55,7 @@ class LoginRequest(BaseModel):
 class UpdateProfileRequest(BaseModel):
     name: Optional[str] = None
     avatar: Optional[str] = None
+    currency: Optional[str] = None
     timezone: Optional[str] = None
     trading_mode: Optional[str] = None
 
@@ -421,6 +422,7 @@ async def get_me(
             "name": current_user.name,
             "email": current_user.email,
             "avatar": current_user.avatar,
+            "currency": getattr(current_user, "currency", "USD") or "USD",
             "timezone": current_user.timezone,
             "trading_mode": current_user.trading_mode,
             "role": current_user.role,
@@ -447,6 +449,11 @@ async def update_profile(
     if body.avatar is not None:
         current_user.avatar = body.avatar.strip()
 
+    if body.currency is not None:
+        curr = body.currency.strip().upper()
+        if curr in ["USD", "INR", "EUR", "GBP", "AED", "CAD", "AUD", "JPY", "SGD", "CHF", "CNY", "RUB", "BRL", "KRW"]:
+            current_user.currency = curr
+
     if body.timezone is not None:
         current_user.timezone = body.timezone.strip()
 
@@ -459,6 +466,18 @@ async def update_profile(
     session.add(current_user)
     await session.commit()
 
+    # Get user plan tier
+    plan_tier = "ENTERPRISE"
+    try:
+        from sqlalchemy import text
+        org_id = f"ORG-{current_user.id}"
+        sub_res = await session.execute(text("SELECT plan_id FROM subscriptions WHERE org_id = :org_id"), {"org_id": org_id})
+        sub_row = sub_res.fetchone()
+        if sub_row:
+            plan_tier = sub_row[0]
+    except Exception:
+        pass
+
     return {
         "status": "success",
         "message": "Profile updated successfully",
@@ -467,8 +486,13 @@ async def update_profile(
             "name": current_user.name,
             "email": current_user.email,
             "avatar": current_user.avatar,
+            "currency": getattr(current_user, "currency", "USD") or "USD",
             "timezone": current_user.timezone,
-            "trading_mode": current_user.trading_mode
+            "trading_mode": current_user.trading_mode,
+            "role": current_user.role,
+            "plan": plan_tier,
+            "plan_tier": plan_tier,
+            "created_at": current_user.created_at.isoformat() if current_user.created_at else ""
         }
     }
 

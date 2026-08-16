@@ -295,4 +295,9 @@ export async function saveExecutionParameters(default_allocation_usd: number, de
   });
 }
 
+export async function fetchAllUnifiedTrades(): Promise<{ status: string; total_count: number; trades: any[] }> {
+  return requestJson<{ status: string; total_count: number; trades: any[] }>("/api/portfolio/all-trades");
+}
+
+
 

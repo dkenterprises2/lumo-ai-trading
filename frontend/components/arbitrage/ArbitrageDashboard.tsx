@@ -25,7 +25,12 @@ export function ArbitrageDashboard() {
   const [funding, setFunding] = useState<Record<string, any>>({});
   const [basis, setBasis] = useState<any>(null);
   const [metrics, setMetrics] = useState<any>(null);
-  const [shadowActive, setShadowActive] = useState<boolean>(false);
+  const [shadowActive, setShadowActive] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('lumo_arbitrage_shadow_active') === 'true';
+    }
+    return false;
+  });
   const [loading, setLoading] = useState<boolean>(true);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -60,7 +65,12 @@ export function ArbitrageDashboard() {
       if (metRes.ok) {
         const d = await metRes.json();
         setMetrics(d.metrics || null);
-        setShadowActive(d.shadow_active || false);
+        if (d.shadow_active !== undefined) {
+          setShadowActive(d.shadow_active);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('lumo_arbitrage_shadow_active', String(d.shadow_active));
+          }
+        }
       }
       setLastUpdated(new Date());
     } catch (err) {
@@ -81,15 +91,24 @@ export function ArbitrageDashboard() {
       setActionLoading(true);
       const nextState = !shadowActive;
       setShadowActive(nextState);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('lumo_arbitrage_shadow_active', String(nextState));
+      }
       const endpoint = nextState ? '/api/arbitrage/shadow/start' : '/api/arbitrage/shadow/stop';
       const res = await apiFetch(endpoint, { method: 'POST' });
       if (res.ok) {
         const data = await res.json();
         if (data.shadow_active !== undefined) {
           setShadowActive(data.shadow_active);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('lumo_arbitrage_shadow_active', String(data.shadow_active));
+          }
         }
       } else {
         setShadowActive(!nextState);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('lumo_arbitrage_shadow_active', String(!nextState));
+        }
       }
     } catch (err) {
       console.error('Shadow toggle failed:', err);

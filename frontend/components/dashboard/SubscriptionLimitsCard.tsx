@@ -34,8 +34,11 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
   activePositionsCount = 0,
   onPreferencesUpdated
 }) => {
+  const isInstPlan = (userPlan || 'INSTITUTIONAL').toUpperCase().includes('INSTITUTIONAL') || (userPlan || '').toUpperCase().includes('ENTERPRISE');
+  const defaultTrades = isInstPlan ? 50 : 10;
+
   const [preferences, setPreferences] = useState<TradingPreferences>({
-    max_concurrent_trades: 10,
+    max_concurrent_trades: defaultTrades,
     max_capital_per_trade_pct: 10,
     daily_loss_limit_pct: 5,
     symbol_cooldown_minutes: 10,
@@ -51,38 +54,7 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
   const [isUpgradeOpen, setIsUpgradeOpen] = useState<boolean>(false);
   const [isMobileExpanded, setIsMobileExpanded] = useState<boolean>(false);
 
-  const fetchPreferences = async () => {
-    try {
-      setLoading(true);
-      const res = await apiFetch('/api/preferences/trading');
-      if (res.ok) {
-        const data = await res.json();
-        const prefs = data?.preferences || data;
-        if (prefs && typeof prefs.max_concurrent_trades === 'number') {
-          setPreferences({
-            max_concurrent_trades: prefs.max_concurrent_trades ?? 10,
-            max_capital_per_trade_pct: prefs.max_capital_per_trade_pct ?? 10,
-            daily_loss_limit_pct: prefs.daily_loss_limit_pct ?? 5,
-            symbol_cooldown_minutes: prefs.symbol_cooldown_minutes ?? 10,
-            allowed_symbols: (prefs.allowed_symbols && prefs.allowed_symbols.length >= 10) ? prefs.allowed_symbols : DEFAULT_50_SYMBOLS,
-            default_allocation_usd: prefs.default_allocation_usd ?? 1000,
-            default_leverage: prefs.default_leverage ?? 1
-          });
-        }
-      }
-    } catch (err: any) {
-
-      console.warn('Failed to load trading preferences:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchPreferences();
-  }, []);
-
-  const handleSave = async () => {
+  const savePreferences = async (newPrefs: TradingPreferences) => {
     try {
       setSaving(true);
       setSaveSuccess(false);
@@ -90,7 +62,7 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
 
       const res = await apiFetch('/api/preferences/trading', {
         method: 'PUT',
-        body: JSON.stringify(preferences)
+        body: JSON.stringify(newPrefs)
       });
       const data = await res.json();
 
@@ -107,13 +79,13 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
       const updated = data?.preferences || data;
       if (updated) {
         setPreferences({
-          max_concurrent_trades: updated.max_concurrent_trades ?? preferences.max_concurrent_trades,
-          max_capital_per_trade_pct: updated.max_capital_per_trade_pct ?? preferences.max_capital_per_trade_pct,
-          daily_loss_limit_pct: updated.daily_loss_limit_pct ?? preferences.daily_loss_limit_pct,
-          symbol_cooldown_minutes: updated.symbol_cooldown_minutes ?? preferences.symbol_cooldown_minutes,
-          allowed_symbols: updated.allowed_symbols || preferences.allowed_symbols,
-          default_allocation_usd: updated.default_allocation_usd ?? preferences.default_allocation_usd,
-          default_leverage: updated.default_leverage ?? preferences.default_leverage
+          max_concurrent_trades: updated.max_concurrent_trades ?? newPrefs.max_concurrent_trades,
+          max_capital_per_trade_pct: updated.max_capital_per_trade_pct ?? newPrefs.max_capital_per_trade_pct,
+          daily_loss_limit_pct: updated.daily_loss_limit_pct ?? newPrefs.daily_loss_limit_pct,
+          symbol_cooldown_minutes: updated.symbol_cooldown_minutes ?? newPrefs.symbol_cooldown_minutes,
+          allowed_symbols: updated.allowed_symbols || newPrefs.allowed_symbols,
+          default_allocation_usd: updated.default_allocation_usd ?? newPrefs.default_allocation_usd,
+          default_leverage: updated.default_leverage ?? newPrefs.default_leverage
         });
       }
 
@@ -125,6 +97,48 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
     } finally {
       setSaving(false);
     }
+  };
+
+  const fetchPreferences = async () => {
+    try {
+      setLoading(true);
+      const res = await apiFetch('/api/preferences/trading');
+      if (res.ok) {
+        const data = await res.json();
+        const prefs = data?.preferences || data;
+        if (prefs && typeof prefs.max_concurrent_trades === 'number') {
+          const rawMax = prefs.max_concurrent_trades ?? defaultTrades;
+          const effectiveMax = (rawMax <= 10 && isInstPlan) ? 50 : rawMax;
+          const loadedPrefs: TradingPreferences = {
+            max_concurrent_trades: effectiveMax,
+            max_capital_per_trade_pct: prefs.max_capital_per_trade_pct ?? 10,
+            daily_loss_limit_pct: prefs.daily_loss_limit_pct ?? 5,
+            symbol_cooldown_minutes: prefs.symbol_cooldown_minutes ?? 10,
+            allowed_symbols: (prefs.allowed_symbols && prefs.allowed_symbols.length >= 10) ? prefs.allowed_symbols : DEFAULT_50_SYMBOLS,
+            default_allocation_usd: prefs.default_allocation_usd ?? 1000,
+            default_leverage: prefs.default_leverage ?? 1
+          };
+          setPreferences(loadedPrefs);
+
+          // Auto-sync if backend had legacy 10 positions saved for Institutional plan
+          if (rawMax <= 10 && isInstPlan) {
+            savePreferences(loadedPrefs);
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('Failed to load trading preferences:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPreferences();
+  }, []);
+
+  const handleSave = async () => {
+    await savePreferences(preferences);
   };
 
   const getPlanBadgeConfig = (planStr: string) => {
@@ -252,9 +266,12 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
               </label>
               <select
                 value={preferences.max_concurrent_trades}
-                onChange={(e) =>
-                  setPreferences({ ...preferences, max_concurrent_trades: Number(e.target.value) })
-                }
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  const updated = { ...preferences, max_concurrent_trades: val };
+                  setPreferences(updated);
+                  savePreferences(updated);
+                }}
                 className="w-full py-2 px-3 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold text-slate-100 focus:outline-none focus:border-cyan-500/80 focus:ring-1 focus:ring-cyan-500/30 transition-all cursor-pointer"
               >
                 {allowedTradesOptions.map((opt) => (

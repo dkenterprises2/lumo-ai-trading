@@ -28,7 +28,7 @@ ranker = ArbitrageOpportunityRanker()
 shadow_router = ArbitrageShadowRouter()
 governance = ArbitrageGovernance()
 
-shadow_active = False
+shadow_active = True
 
 @router.get("/opportunities")
 async def get_arbitrage_opportunities(symbol: Optional[str] = "BTC/USDT", current_user: Optional[UserModel] = Depends(get_optional_current_user)):
@@ -61,13 +61,17 @@ async def get_spot_perpetual_basis(symbol: Optional[str] = "BTC/USDT", current_u
 
 @router.get("/metrics")
 async def get_arbitrage_metrics(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
-    """Fetch cross-exchange arbitrage metrics & performance summary."""
+    """Fetch cross-exchange arbitrage metrics & performance summary for current user."""
+    from trader import trader_manager
+    user_id = current_user.id if current_user else 1
+    trader_inst = await trader_manager.get_trader_for_user(user_id)
+    user_shadow_active = getattr(trader_inst, "arbitrage_shadow_enabled", True)
     gov = governance.validate_session()
     return {
         "status": "success",
         "metrics": ArbitrageMetricsTracker.get_summary().to_dict(),
         "governance": gov.to_dict(),
-        "shadow_active": shadow_active
+        "shadow_active": user_shadow_active
     }
 
 class ArbitrageSimulateTradeRequest(BaseModel):
@@ -101,14 +105,20 @@ async def simulate_arbitrage_trade(body: ArbitrageSimulateTradeRequest, current_
 
 @router.post("/shadow/start")
 async def start_shadow_arbitrage(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
-    """Start automated cross-exchange shadow arbitrage routing."""
-    global shadow_active
-    shadow_active = True
-    return {"status": "success", "message": "Shadow Arbitrage Router ACTIVATED", "shadow_active": True}
+    """Start automated cross-exchange shadow arbitrage routing for current user."""
+    from trader import trader_manager
+    user_id = current_user.id if current_user else 1
+    trader_inst = await trader_manager.get_trader_for_user(user_id)
+    trader_inst.arbitrage_shadow_enabled = True
+    await trader_inst.save_portfolio_async()
+    return {"status": "success", "message": "Shadow Arbitrage Router ACTIVATED for your account", "shadow_active": True}
 
 @router.post("/shadow/stop")
 async def stop_shadow_arbitrage(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
-    """Stop automated cross-exchange shadow arbitrage routing."""
-    global shadow_active
-    shadow_active = False
-    return {"status": "success", "message": "Shadow Arbitrage Router DEACTIVATED", "shadow_active": False}
+    """Stop automated cross-exchange shadow arbitrage routing for current user."""
+    from trader import trader_manager
+    user_id = current_user.id if current_user else 1
+    trader_inst = await trader_manager.get_trader_for_user(user_id)
+    trader_inst.arbitrage_shadow_enabled = False
+    await trader_inst.save_portfolio_async()
+    return {"status": "success", "message": "Shadow Arbitrage Router DEACTIVATED for your account", "shadow_active": False}

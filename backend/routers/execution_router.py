@@ -35,6 +35,13 @@ class IcebergAlgorithmRequest(BaseModel):
     total_quantity: float
     display_quantity_pct: Optional[float] = 10.0
 
+from backend.execution.execution_planner import execution_planner
+
+@router.get("/planner/active-plans")
+async def get_active_execution_plans(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
+    """Fetch active execution plans from Phase 44.2 Autonomous Execution Planner."""
+    return {"plans": execution_planner.get_active_plans()}
+
 @router.get("/orders")
 async def get_execution_orders(status: Optional[str] = None, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch order blotter for current authenticated user."""

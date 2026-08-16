@@ -1,14 +1,16 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { TradeRecord } from "@/types/trading";
-import { History, ArrowUpDown, ArrowUp, ArrowDown, Download, FileSpreadsheet } from "lucide-react";
+import { History, ArrowUpDown, ArrowUp, ArrowDown, Download, FileSpreadsheet, Zap, Layers, TrendingUp, Search, RefreshCw } from "lucide-react";
+import { fetchAllUnifiedTrades } from "@/services/api";
 
 interface TradeHistoryTableProps {
-  trades: TradeRecord[];
+  trades?: TradeRecord[];
 }
 
-type SortField = "symbol" | "side" | "entry_price" | "amount" | "margin_usd" | "pnl_usd" | "pnl_pct" | "exit_time";
+type SubsystemFilter = "ALL" | "SPOT" | "ARBITRAGE" | "SHADOW";
+type SortField = "subsystem" | "symbol" | "venue" | "side" | "entry_price" | "exit_price" | "amount" | "margin_usd" | "pnl_usd" | "pnl_pct" | "status" | "time";
 type SortDirection = "asc" | "desc";
 
 export function formatCryptoPrice(price: number | undefined | null): string {
@@ -20,10 +22,51 @@ export function formatCryptoPrice(price: number | undefined | null): string {
   return `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function TradeHistoryTable({ trades }: TradeHistoryTableProps) {
-
-  const [sortField, setSortField] = useState<SortField>("exit_time");
+export function TradeHistoryTable({ trades: propTrades }: TradeHistoryTableProps) {
+  const [unifiedTrades, setUnifiedTrades] = useState<any[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [activeTab, setActiveTab] = useState<SubsystemFilter>("ALL");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [sortField, setSortField] = useState<SortField>("time");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+
+  const loadTrades = async () => {
+    try {
+      setLoading(true);
+      const res = await fetchAllUnifiedTrades();
+      if (res && res.trades) {
+        setUnifiedTrades(res.trades);
+      }
+    } catch (e) {
+      console.warn("Failed to load unified trades, using prop fallback:", e);
+      if (propTrades && propTrades.length > 0) {
+        setUnifiedTrades(propTrades.map(t => ({
+          id: t.id,
+          subsystem: "SPOT",
+          symbol: t.symbol,
+          side: t.side,
+          entry_price: t.entry_price,
+          exit_price: t.exit_price,
+          amount: t.amount,
+          margin_usd: t.margin_usd,
+          pnl_usd: t.pnl_usd,
+          pnl_pct: t.pnl_pct,
+          status: t.status || "CLOSED",
+          reason: t.close_reason || t.reason || "Auto-Bot Strategy",
+          venue: t.exchange || "BINANCE",
+          time: t.exit_time || t.entry_time || ""
+        })));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTrades();
+    const timer = setInterval(loadTrades, 5000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -34,42 +77,97 @@ export function TradeHistoryTable({ trades }: TradeHistoryTableProps) {
     }
   };
 
+  const filteredTrades = useMemo(() => {
+    let list = [...unifiedTrades];
+
+    if (activeTab !== "ALL") {
+      list = list.filter(t => (t.subsystem || "SPOT").toUpperCase() === activeTab);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(t => 
+        (t.symbol || "").toLowerCase().includes(q) ||
+        (t.id || "").toLowerCase().includes(q) ||
+        (t.venue || "").toLowerCase().includes(q) ||
+        (t.reason || "").toLowerCase().includes(q) ||
+        (t.status || "").toLowerCase().includes(q)
+      );
+    }
+
+    list.sort((a, b) => {
+      let valA: any = a[sortField];
+      let valB: any = b[sortField];
+
+      if (sortField === "pnl_usd") {
+        valA = a.pnl_usd ?? 0;
+        valB = b.pnl_usd ?? 0;
+      } else if (sortField === "pnl_pct") {
+        valA = a.pnl_pct ?? 0;
+        valB = b.pnl_pct ?? 0;
+      } else if (sortField === "entry_price") {
+        valA = a.entry_price ?? 0;
+        valB = b.entry_price ?? 0;
+      } else if (sortField === "exit_price") {
+        valA = a.exit_price ?? 0;
+        valB = b.exit_price ?? 0;
+      } else if (sortField === "amount") {
+        valA = a.amount ?? 0;
+        valB = b.amount ?? 0;
+      } else if (sortField === "margin_usd") {
+        valA = a.margin_usd ?? 0;
+        valB = b.margin_usd ?? 0;
+      }
+
+      if (typeof valA === "string") {
+        return sortDirection === "asc" ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      }
+      return sortDirection === "asc" ? (valA || 0) - (valB || 0) : (valB || 0) - (valA || 0);
+    });
+
+    return list;
+  }, [unifiedTrades, activeTab, searchQuery, sortField, sortDirection]);
+
   const exportTrades = (format: "csv" | "excel") => {
-    if (!trades || trades.length === 0) return;
+    if (!filteredTrades || filteredTrades.length === 0) return;
 
     const headers = [
       "Trade ID",
+      "Engine / Subsystem",
       "Symbol",
+      "Venue / Route",
       "Side",
       "Entry Price ($)",
-      "Exit Price ($)",
+      "Exit/Mark Price ($)",
       "Amount",
       "Margin ($)",
       "PnL ($)",
       "PnL (%)",
       "Status",
-      "Close Reason",
+      "Strategy / Reason",
       "Time"
     ];
 
-    const rows = trades.map(t => [
+    const rows = filteredTrades.map(t => [
       `"${t.id}"`,
+      `"${t.subsystem || 'SPOT'}"`,
       `"${t.symbol}"`,
+      `"${t.venue || 'BINANCE'}"`,
       `"${t.side}"`,
-      t.entry_price ? t.entry_price.toFixed(4) : "0",
-      t.exit_price ? t.exit_price.toFixed(4) : "0",
+      t.entry_price ? (t.entry_price < 0.001 ? t.entry_price.toFixed(8) : t.entry_price.toFixed(4)) : "0",
+      t.exit_price ? (t.exit_price < 0.001 ? t.exit_price.toFixed(8) : t.exit_price.toFixed(4)) : "0",
       t.amount ? t.amount.toFixed(4) : "0",
       t.margin_usd ? t.margin_usd.toFixed(2) : "0",
       t.pnl_usd ? t.pnl_usd.toFixed(2) : "0",
       t.pnl_pct ? `${t.pnl_pct.toFixed(2)}%` : "0%",
       `"${t.status || 'CLOSED'}"`,
-      `"${(t.close_reason || t.reason || '').replace(/"/g, '""')}"`,
-      `"${t.exit_time || t.entry_time || ''}"`
+      `"${(t.reason || '').replace(/"/g, '""')}"`,
+      `"${t.time || ''}"`
     ]);
 
     const delimiter = format === "csv" ? "," : "\t";
     const mimeType = format === "csv" ? "text/csv;charset=utf-8;" : "application/vnd.ms-excel;charset=utf-8;";
-    const filename = `lumo_trade_history_${new Date().toISOString().slice(0, 10)}.${format === "csv" ? "csv" : "xls"}`;
+    const filename = `lumo_unified_trades_${activeTab.toLowerCase()}_${new Date().toISOString().slice(0, 10)}.${format === "csv" ? "csv" : "xls"}`;
 
     const content = "\uFEFF" + [headers.join(delimiter), ...rows.map(r => r.join(delimiter))].join("\n");
     const blob = new Blob([content], { type: mimeType });
@@ -83,194 +181,249 @@ export function TradeHistoryTable({ trades }: TradeHistoryTableProps) {
     URL.revokeObjectURL(url);
   };
 
-  const sortedTrades = useMemo(() => {
-    if (!trades || trades.length === 0) return [];
-    return [...trades].sort((a, b) => {
-      let valA: any = a[sortField];
-      let valB: any = b[sortField];
-
-      if (sortField === "pnl_usd") {
-        valA = a.pnl_usd ?? 0;
-        valB = b.pnl_usd ?? 0;
-      } else if (sortField === "pnl_pct") {
-        valA = a.pnl_pct ?? 0;
-        valB = b.pnl_pct ?? 0;
-      }
-
-      if (typeof valA === "string") {
-        return sortDirection === "asc"
-          ? valA.localeCompare(valB)
-          : valB.localeCompare(valA);
-      }
-
-      return sortDirection === "asc"
-        ? (valA > valB ? 1 : -1)
-        : (valA < valB ? 1 : -1);
-    });
-  }, [trades, sortField, sortDirection]);
-
-  const renderSortIndicator = (field: SortField) => {
+  const renderSortIcon = (field: SortField) => {
     if (sortField !== field) {
-      return <ArrowUpDown className="w-3 h-3 opacity-40 group-hover:opacity-100 transition-opacity" />;
+      return <ArrowUpDown className="w-3 h-3 text-slate-500 opacity-40 group-hover:opacity-100" />;
     }
-    return sortDirection === "desc" ? (
-      <ArrowDown className="w-3.5 h-3.5 text-blue-400" />
+    return sortDirection === "asc" ? (
+      <ArrowUp className="w-3.5 h-3.5 text-cyan-400 font-bold" />
     ) : (
-      <ArrowUp className="w-3.5 h-3.5 text-blue-400" />
+      <ArrowDown className="w-3.5 h-3.5 text-cyan-400 font-bold" />
     );
   };
 
+  const spotCount = unifiedTrades.filter(t => (t.subsystem || "SPOT") === "SPOT").length;
+  const arbCount = unifiedTrades.filter(t => t.subsystem === "ARBITRAGE").length;
+  const shadowCount = unifiedTrades.filter(t => t.subsystem === "SHADOW").length;
+
   return (
-    <div className="p-5 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 shadow-xl space-y-4">
-      <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
-            <History className="h-5 w-5" />
-          </div>
-          <div>
-            <h3 className="font-bold text-slate-100 text-base">Trade History (Executed Orders)</h3>
-            <p className="text-xs text-slate-400">Click column headers to sort High to Low / Low to High</p>
-          </div>
+    <div className="space-y-4">
+      {/* Control Banner & Subsystem Tabs */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-2xl bg-slate-900 border border-slate-800">
+        
+        {/* Tabs */}
+        <div className="flex items-center gap-2 overflow-x-auto">
+          {[
+            { id: "ALL", label: `All Trades (${unifiedTrades.length})`, icon: History },
+            { id: "SPOT", label: `Spot AI (${spotCount})`, icon: TrendingUp, color: "text-cyan-400" },
+            { id: "ARBITRAGE", label: `Arbitrage (${arbCount})`, icon: Zap, color: "text-amber-400" },
+            { id: "SHADOW", label: `Shadow Replay (${shadowCount})`, icon: Layers, color: "text-purple-400" }
+          ].map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as SubsystemFilter)}
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer whitespace-nowrap ${
+                  active
+                    ? "bg-slate-800 text-white border border-slate-700 shadow-md"
+                    : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${tab.color || "text-slate-400"}`} />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
         </div>
 
+        {/* Search & Export Buttons */}
         <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <input
+              type="text"
+              placeholder="Search symbol, route, status..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500 w-44 sm:w-56 font-mono"
+            />
+          </div>
+
           <button
             onClick={() => exportTrades("csv")}
-            disabled={!trades || trades.length === 0}
-            className="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-40"
-            title="Download Trade History as CSV"
+            disabled={filteredTrades.length === 0}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition flex items-center gap-1.5 border border-slate-700 cursor-pointer disabled:opacity-50"
+            title="Download CSV"
           >
-            <Download className="w-3.5 h-3.5 text-cyan-400" />
-            <span>CSV</span>
+            <Download className="w-3.5 h-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">CSV</span>
           </button>
 
           <button
             onClick={() => exportTrades("excel")}
-            disabled={!trades || trades.length === 0}
-            className="px-2.5 py-1 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-40"
-            title="Download Trade History as Excel"
+            disabled={filteredTrades.length === 0}
+            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold rounded-xl transition flex items-center gap-1.5 border border-slate-700 cursor-pointer disabled:opacity-50"
+            title="Download Excel"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Excel</span>
+            <span className="hidden sm:inline">Excel</span>
           </button>
 
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-            {trades ? trades.length : 0} Executed
-          </span>
+          <button
+            onClick={loadTrades}
+            disabled={loading}
+            className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition cursor-pointer border border-slate-700"
+            title="Refresh Trades"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin text-cyan-400" : ""}`} />
+          </button>
         </div>
       </div>
 
-
-      <div className="overflow-x-auto max-h-80 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-800">
-        <table className="w-full text-left text-xs">
-          <thead className="sticky top-0 bg-slate-950/95 backdrop-blur-md text-slate-400 border-b border-slate-800 select-none z-10">
+      {/* Main Table */}
+      <div className="overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900 shadow-xl">
+        <table className="w-full text-left text-xs font-mono">
+          <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
             <tr>
-              <th onClick={() => handleSort("symbol")} className="py-2.5 px-3 font-semibold cursor-pointer hover:text-white transition group">
-                <div className="flex items-center gap-1.5">
-                  <span>ID / Symbol</span> {renderSortIndicator("symbol")}
-                </div>
-              </th>
-              <th onClick={() => handleSort("side")} className="py-2.5 px-3 font-semibold cursor-pointer hover:text-white transition group">
-                <div className="flex items-center gap-1.5">
-                  <span>Side</span> {renderSortIndicator("side")}
-                </div>
-              </th>
-              <th onClick={() => handleSort("entry_price")} className="py-2.5 px-3 font-semibold cursor-pointer hover:text-white transition group">
-                <div className="flex items-center gap-1.5">
-                  <span>Entry / Exit Price</span> {renderSortIndicator("entry_price")}
-                </div>
-              </th>
-              <th onClick={() => handleSort("amount")} className="py-2.5 px-3 font-semibold cursor-pointer hover:text-white transition group">
-                <div className="flex items-center gap-1.5">
-                  <span>Amount</span> {renderSortIndicator("amount")}
-                </div>
-              </th>
-              <th onClick={() => handleSort("margin_usd")} className="py-2.5 px-3 font-semibold cursor-pointer hover:text-white transition group">
-                <div className="flex items-center gap-1.5">
-                  <span>Margin</span> {renderSortIndicator("margin_usd")}
-                </div>
-              </th>
-              <th onClick={() => handleSort("pnl_usd")} className="py-2.5 px-3 font-semibold cursor-pointer hover:text-white transition group">
-                <div className="flex items-center gap-1.5">
-                  <span>PnL ($)</span> {renderSortIndicator("pnl_usd")}
-                </div>
-              </th>
-              <th onClick={() => handleSort("pnl_pct")} className="py-2.5 px-3 font-semibold cursor-pointer hover:text-white transition group">
-                <div className="flex items-center gap-1.5">
-                  <span>PnL (%)</span> {renderSortIndicator("pnl_pct")}
-                </div>
-              </th>
-              <th onClick={() => handleSort("exit_time")} className="py-2.5 px-3 font-semibold cursor-pointer hover:text-white transition text-right group">
-                <div className="flex items-center justify-end gap-1.5">
-                  <span>Status / Time</span> {renderSortIndicator("exit_time")}
-                </div>
-              </th>
+              {[
+                { key: "subsystem", label: "Engine" },
+                { key: "symbol", label: "Symbol / ID" },
+                { key: "venue", label: "Execution Venue" },
+                { key: "side", label: "Side" },
+                { key: "entry_price", label: "Entry Price" },
+                { key: "exit_price", label: "Exit / Mark Price" },
+                { key: "amount", label: "Amount" },
+                { key: "margin_usd", label: "Margin" },
+                { key: "pnl_usd", label: "PnL ($)" },
+                { key: "pnl_pct", label: "PnL (%)" },
+                { key: "status", label: "Status" },
+                { key: "time", label: "Execution Time" }
+              ].map((col) => (
+                <th
+                  key={col.key}
+                  onClick={() => handleSort(col.key as SortField)}
+                  className="p-3 cursor-pointer hover:bg-slate-900 transition group select-none whitespace-nowrap"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <span>{col.label}</span>
+                    {renderSortIcon(col.key as SortField)}
+                  </div>
+                </th>
+              ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800/60 text-slate-200 font-medium">
-            {(!sortedTrades || sortedTrades.length === 0) ? (
-              <tr>
-                <td colSpan={8} className="py-8 text-center text-slate-500">
-                  No trade history records.
-                </td>
-              </tr>
-            ) : (
-              sortedTrades.map((t) => {
-                const isClosed = t.status === "CLOSED" || (t.exit_time && t.exit_time !== "");
-                const pnlVal = t.pnl_usd || 0;
-                const pctVal = t.pnl_pct || 0;
-                const isProfit = pnlVal >= 0;
-                const formattedMoney = isProfit ? `+$${pnlVal.toFixed(2)}` : `-$${Math.abs(pnlVal).toFixed(2)}`;
-                const formattedPct = isProfit ? `+${pctVal.toFixed(2)}%` : `-${Math.abs(pctVal).toFixed(2)}%`;
+          <tbody className="divide-y divide-slate-800/50 bg-slate-900/40">
+            {filteredTrades.length > 0 ? (
+              filteredTrades.map((t: any, idx: number) => {
+                const isSpot = (t.subsystem || "SPOT") === "SPOT";
+                const isArb = t.subsystem === "ARBITRAGE";
+                const isShadow = t.subsystem === "SHADOW";
+                const pnl = t.pnl_usd ?? 0;
+                const isPositive = pnl > 0;
+                const isZero = pnl === 0;
 
                 return (
-                  <tr key={t.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="py-3 px-3">
-                      <div className="font-bold text-slate-100">{t.symbol}</div>
-                      <div className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]">{t.id}</div>
+                  <tr key={t.id || idx} className="hover:bg-slate-800/30 transition">
+                    
+                    {/* Subsystem Badge */}
+                    <td className="p-3">
+                      {isSpot && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+                          SPOT
+                        </span>
+                      )}
+                      {isArb && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20 flex items-center gap-1 w-fit">
+                          <Zap className="w-2.5 h-2.5" /> ARB
+                        </span>
+                      )}
+                      {isShadow && (
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/10 text-purple-400 border border-purple-500/20 flex items-center gap-1 w-fit">
+                          <Layers className="w-2.5 h-2.5" /> SHADOW
+                        </span>
+                      )}
                     </td>
-                    <td className="py-3 px-3">
-                      <span
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                          t.side === "LONG"
-                            ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                            : "bg-rose-500/10 text-rose-400 border border-rose-500/30"
-                        }`}
-                      >
+
+                    {/* Symbol / ID */}
+                    <td className="p-3">
+                      <div className="font-bold text-white">{t.symbol}</div>
+                      <div className="text-[10px] text-slate-500 truncate max-w-[120px]">{t.id}</div>
+                    </td>
+
+                    {/* Venue / Route */}
+                    <td className="p-3 text-slate-300">
+                      {isArb ? (
+                        <span className="text-amber-300 font-bold text-[11px]">{t.venue}</span>
+                      ) : isShadow ? (
+                        <span className="text-purple-300 text-[11px]">{t.venue}</span>
+                      ) : (
+                        <span className="text-slate-300 text-[11px]">{t.venue || "BINANCE"}</span>
+                      )}
+                    </td>
+
+                    {/* Side */}
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        t.side === "BUY" || t.side === "LONG"
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : t.side === "SHORT" || t.side === "SELL"
+                          ? "bg-rose-500/20 text-rose-400"
+                          : "bg-amber-500/20 text-amber-400"
+                      }`}>
                         {t.side}
                       </span>
                     </td>
-                    <td className="py-3 px-3 font-mono">
-                      <div>{formatCryptoPrice(t.entry_price)}</div>
-                      <div className="text-[10px] text-slate-400">
-                        {isClosed ? formatCryptoPrice(t.exit_price) : "-"}
-                      </div>
+
+                    {/* Entry Price */}
+                    <td className="p-3 text-slate-200">
+                      {formatCryptoPrice(t.entry_price)}
                     </td>
 
-                    <td className="py-3 px-3 font-mono">{t.amount.toFixed(4)}</td>
-                    <td className="py-3 px-3 font-mono font-bold text-blue-300">${t.margin_usd.toFixed(2)}</td>
-                    <td className={`py-3 px-3 font-mono font-bold ${isProfit ? "text-emerald-400" : "text-rose-400"}`}>
-                      {isClosed ? formattedMoney : "$0.00"}
-                    </td>
-                    <td className={`py-3 px-3 font-mono font-bold ${isProfit ? "text-emerald-400" : "text-rose-400"}`}>
-                      {isClosed ? formattedPct : "0.0%"}
+                    {/* Exit / Mark Price */}
+                    <td className="p-3 text-slate-200">
+                      {t.exit_price ? formatCryptoPrice(t.exit_price) : "-"}
                     </td>
 
-                    <td className="py-3 px-3 text-right">
-                      <span
-                        className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                          isClosed
-                            ? "bg-slate-800 text-slate-300 border border-slate-700"
-                            : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
-                        }`}
-                      >
-                        {isClosed ? "CLOSED" : "OPEN"}
+                    {/* Amount */}
+                    <td className="p-3 text-slate-300">
+                      {t.amount ? t.amount.toLocaleString(undefined, { maximumFractionDigits: 4 }) : "-"}
+                    </td>
+
+                    {/* Margin */}
+                    <td className="p-3 text-slate-300">
+                      ${(t.margin_usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+
+                    {/* PnL ($) */}
+                    <td className={`p-3 font-extrabold ${isZero ? "text-slate-400" : isPositive ? "text-emerald-400" : "text-rose-400"}`}>
+                      {isZero ? "$0.00" : `${isPositive ? "+" : ""}$${pnl.toFixed(2)}`}
+                    </td>
+
+                    {/* PnL (%) */}
+                    <td className={`p-3 font-bold ${isZero ? "text-slate-400" : isPositive ? "text-emerald-400" : "text-rose-400"}`}>
+                      {isZero ? "0.00%" : `${isPositive ? "+" : ""}${(t.pnl_pct || 0).toFixed(2)}%`}
+                    </td>
+
+                    {/* Status */}
+                    <td className="p-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        t.status === "OPEN"
+                          ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                          : t.status === "CAPTURED"
+                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                          : t.status === "SIMULATED"
+                          ? "bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                          : "bg-slate-700/50 text-slate-300"
+                      }`}>
+                        {t.status || "CLOSED"}
                       </span>
-                      <div className="text-[10px] text-slate-500 mt-1 font-mono">{isClosed ? t.exit_time : t.entry_time}</div>
+                    </td>
+
+                    {/* Execution Time */}
+                    <td className="p-3 text-slate-400 whitespace-nowrap text-[11px]">
+                      {t.time || "-"}
                     </td>
                   </tr>
                 );
               })
+            ) : (
+              <tr>
+                <td colSpan={12} className="p-8 text-center text-slate-500">
+                  No trade history found for current filter.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -278,4 +431,3 @@ export function TradeHistoryTable({ trades }: TradeHistoryTableProps) {
     </div>
   );
 }
-

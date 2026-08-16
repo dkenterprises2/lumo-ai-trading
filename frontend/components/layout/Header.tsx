@@ -29,6 +29,8 @@ interface HeaderProps {
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/context/AuthContext";
+import { useCurrency, SUPPORTED_CURRENCIES } from "@/context/CurrencyContext";
+import { ProfitAttributionModal } from "@/components/portfolio/ProfitAttributionModal";
 
 export function Header({
   portfolio,
@@ -39,7 +41,10 @@ export function Header({
   onSelectStrategy
 }: HeaderProps) {
   const { user } = useAuth();
+  const { currency, setCurrency, currentCurrency, formatCurrency } = useCurrency();
+  const [showCurrencyMenu, setShowCurrencyMenu] = React.useState<boolean>(false);
   const [botState, setBotState] = React.useState<boolean | null>(null);
+  const [showProfitModal, setShowProfitModal] = React.useState<boolean>(false);
   const lastAutoBot = React.useRef<boolean | undefined>(undefined);
 
   const systemStatusQuery = useQuery({
@@ -222,6 +227,51 @@ export function Header({
           )}
 
 
+          {/* Currency Switcher Quick Button */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowCurrencyMenu(!showCurrencyMenu)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-emerald-500/50 text-xs font-mono font-bold text-slate-300 hover:text-emerald-400 transition cursor-pointer"
+              title="Switch Display Currency (INR, USD, EUR, etc.)"
+            >
+              <span>{currentCurrency.flag}</span>
+              <span>{currentCurrency.code}</span>
+              <span className="text-emerald-400">({currentCurrency.symbol})</span>
+            </button>
+
+            {showCurrencyMenu && (
+              <div className="absolute right-0 mt-2 w-56 p-2 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl z-50 space-y-1 animate-in fade-in zoom-in-95 duration-150">
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1 border-b border-slate-800">
+                  Select Display Currency
+                </div>
+                <div className="max-h-60 overflow-y-auto space-y-1 pt-1 pr-1">
+                  {SUPPORTED_CURRENCIES.map(c => (
+                    <button
+                      key={c.code}
+                      type="button"
+                      onClick={() => {
+                        setCurrency(c.code);
+                        setShowCurrencyMenu(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-mono transition cursor-pointer ${
+                        currency === c.code
+                          ? "bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30"
+                          : "text-slate-300 hover:bg-slate-800"
+                      }`}
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <span>{c.flag}</span>
+                        <span>{c.code}</span>
+                      </span>
+                      <span className="text-slate-400 font-semibold">{c.symbol}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Settings Quick Icon */}
           <Link href="/settings" className="p-2 rounded-xl bg-slate-950 border border-slate-800 text-slate-400 hover:text-slate-100 hover:border-slate-700 transition">
             <Settings className="h-4 w-4" />
@@ -285,16 +335,26 @@ export function Header({
         </div>
 
         {/* Card 2: Daily PnL */}
-        <div className="p-4 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 hover:border-emerald-500/30 transition-all duration-200">
+        <div 
+          onClick={() => setShowProfitModal(true)}
+          className="p-4 rounded-2xl bg-slate-900/60 backdrop-blur-xl border border-slate-800/80 hover:border-emerald-500/60 hover:bg-slate-800/80 cursor-pointer transition-all duration-200 group relative"
+          title="Click to view detailed Profit Attribution & Source Breakdown Report (Spot vs Arbitrage vs Shadow)"
+        >
           <div className="flex items-center justify-between text-slate-400 mb-2">
-            <span className="text-xs font-medium">Daily PnL</span>
-            <TrendingUp className={`h-4 w-4 ${dailyPnlUsd === undefined || dailyPnlUsd >= 0 ? "text-emerald-400" : "text-rose-400"}`} />
+            <span className="text-xs font-medium group-hover:text-emerald-400 transition">Daily PnL</span>
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono font-bold opacity-0 group-hover:opacity-100 transition">
+                REPORT ↗
+              </span>
+              <TrendingUp className={`h-4 w-4 ${dailyPnlUsd === undefined || dailyPnlUsd >= 0 ? "text-emerald-400" : "text-rose-400"}`} />
+            </div>
           </div>
           <div className={`text-xl font-extrabold ${dailyPnlUsd === undefined || dailyPnlUsd >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
             {formatSignedMoney(dailyPnlUsd)}
           </div>
-          <div className="text-[10px] font-medium text-slate-400 mt-1">
-            {formatSignedPercent(dailyPnlPct)} today
+          <div className="text-[10px] font-medium text-slate-400 mt-1 flex items-center justify-between">
+            <span>{formatSignedPercent(dailyPnlPct)} today</span>
+            <span className="text-[10px] text-emerald-400/80 font-mono underline">View Sources</span>
           </div>
         </div>
 
@@ -356,6 +416,12 @@ export function Header({
           </div>
         </div>
       </div>
+
+      {/* Profit Attribution Modal */}
+      <ProfitAttributionModal
+        isOpen={showProfitModal}
+        onClose={() => setShowProfitModal(false)}
+      />
     </header>
   );
 }

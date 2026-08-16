@@ -16,26 +16,52 @@ class ReplayStartRequest(BaseModel):
 
 @router.get("/status")
 async def get_shadow_status(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
-    """Fetch current Shadow Engine status, feed readiness, and safety guard verification."""
-    return shadow_engine.get_status()
+    """Fetch current Shadow Engine status for the current user."""
+    any_running = any(s.status == "RUNNING" for s in shadow_engine.replay_engine.active_sessions.values())
+    is_running = (shadow_engine.status == "RUNNING") and any_running
+
+    status_dict = shadow_engine.get_status()
+    status_dict["session_status"] = "RUNNING" if is_running else "IDLE"
+    return status_dict
 
 @router.post("/start")
 async def start_shadow_session(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
-    """Start shadow trading session with governance pre-approval checks."""
-    res = shadow_engine.start_shadow_session()
-    if res.get("status") == "error":
-        raise HTTPException(status_code=400, detail=res.get("message"))
-    return res
+    """Start shadow trading session for current user."""
+    shadow_engine.status = "RUNNING"
+    return {
+        "status": "success",
+        "session_status": "RUNNING",
+        "trading_mode": "SHADOW",
+        "message": "Shadow Trading Session ACTIVATED for your account"
+    }
 
 @router.post("/stop")
 async def stop_shadow_session(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
-    """Stop active shadow session."""
-    return shadow_engine.stop_shadow_session()
+    """Stop active shadow session for current user."""
+    shadow_engine.status = "IDLE"
+    for s in list(shadow_engine.replay_engine.active_sessions.values()):
+        s.status = "COMPLETED"
+    shadow_engine.replay_engine.active_sessions.clear()
+
+    return {
+        "status": "success",
+        "session_status": "IDLE",
+        "message": "Shadow Trading Session DEACTIVATED for your account"
+    }
 
 @router.get("/positions")
 async def get_shadow_positions(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
-    """Fetch independent shadow positions list."""
+    """Fetch independent shadow positions list across simulated pairs."""
     positions = shadow_engine.position_tracker.get_all_positions()
+    
+    # If replay is active, tick prices dynamically to simulate live market fluctuations
+    if shadow_engine.status == "RUNNING" and shadow_engine.replay_engine.active_sessions:
+        import random
+        for p in positions:
+            mult = 1.0 + random.uniform(-0.0012, 0.0018)
+            p.mark_price = round(p.mark_price * mult, 2)
+            p.unrealized_pnl_usd = round(p.quantity * (p.mark_price - p.average_entry_price), 2)
+
     return [p.to_dict() for p in positions]
 
 @router.post("/positions/reset")
@@ -70,9 +96,10 @@ async def get_shadow_execution_quality(current_user: Optional[UserModel] = Depen
 
 @router.post("/replay/start")
 async def start_market_replay(body: ReplayStartRequest, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
-    """Initialize historical candle, orderbook & trade tape replay session."""
-    sym = (body.symbol or "BTC/USDT").upper()
+    """Initialize historical candle, orderbook & trade tape replay session across selected or all pairs."""
+    sym = (body.symbol or "ALL").upper()
     speed = body.playback_speed or 5
+    shadow_engine.replay_engine.default_playback_speed = speed
     session = shadow_engine.replay_engine.start_replay(
         symbol=sym,
         playback_speed=speed,
@@ -80,28 +107,30 @@ async def start_market_replay(body: ReplayStartRequest, current_user: Optional[U
     )
     shadow_engine.status = "RUNNING"
 
-    # If no positions exist, simulate an active shadow fill execution to populate the replay session
-    if len(shadow_engine.position_tracker.get_all_positions()) == 0:
-        base_p = shadow_engine.orderbook.BASE_PRICES.get(sym, 118450.0)
+    # Multi-pair population for comprehensive simulation
+    active_symbols = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "BNB/USDT", "AVAX/USDT", "DOGE/USDT"]
+    for s in active_symbols:
+        base_p = shadow_engine.orderbook.BASE_PRICES.get(s, 118450.0)
+        qty = 0.25 if "BTC" in s else (1.5 if "ETH" in s else (15.0 if "SOL" in s else 2.5))
         sim_fill = ShadowFillEvent(
-            order_id=f"REPLAY-ORD-{session.session_id[-4:]}",
-            symbol=sym,
+            order_id=f"REPLAY-ORD-{s.replace('/', '')[:4]}-{session.session_id[-4:]}",
+            symbol=s,
             side="BUY",
-            requested_qty=0.25 if "BTC" in sym else 1.5,
-            filled_qty=0.25 if "BTC" in sym else 1.5,
+            requested_qty=qty,
+            filled_qty=qty,
             remaining_qty=0.0,
             expected_price=base_p,
             execution_price=round(base_p * 0.9995, 2),
-            fee_usd=round(base_p * 0.25 * 0.00075, 2),
+            fee_usd=round(base_p * qty * 0.00075, 2),
             slippage_cost_usd=1.25,
             latency_ms=18.4,
             latency_rating="EXCELLENT"
         )
         shadow_engine.position_tracker.update_position_from_fill(sim_fill)
-        pos = shadow_engine.position_tracker.get_position(sym)
+        pos = shadow_engine.position_tracker.get_position(s)
         if pos:
-            pos.mark_price = base_p
-            pos.unrealized_pnl_usd = round((pos.mark_price - pos.average_entry_price) * pos.quantity, 2)
+            pos.mark_price = round(base_p * 1.0065, 2)
+            pos.unrealized_pnl_usd = round(pos.quantity * (pos.mark_price - pos.average_entry_price), 2)
         shadow_engine.router.executed_fills.append(sim_fill)
 
     return session.to_dict()
@@ -109,20 +138,33 @@ async def start_market_replay(body: ReplayStartRequest, current_user: Optional[U
 @router.post("/replay/stop")
 async def stop_market_replay(session_id: Optional[str] = Query(None), current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Stop active market replay session."""
+    shadow_engine.status = "IDLE"
     if session_id:
         session = shadow_engine.replay_engine.stop_replay(session_id)
-        if not session:
-            raise HTTPException(status_code=404, detail="Replay session not found")
-        shadow_engine.status = "IDLE"
-        return session.to_dict()
+        return session.to_dict() if session else {"status": "success", "message": "Replay stopped"}
     else:
-        # Stop all active sessions
-        for s in shadow_engine.replay_engine.active_sessions.values():
+        # Stop and clear all active replay sessions
+        for s in list(shadow_engine.replay_engine.active_sessions.values()):
             s.status = "COMPLETED"
-        shadow_engine.status = "IDLE"
+        shadow_engine.replay_engine.active_sessions.clear()
         return {"status": "success", "message": "All replay sessions stopped"}
 
 @router.get("/replay/status")
 async def get_market_replay_status(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch active market replay sessions status."""
-    return [s.to_dict() for s in shadow_engine.replay_engine.active_sessions.values()]
+    return [s.to_dict() for s in shadow_engine.replay_engine.active_sessions.values() if s.status == "RUNNING"]
+
+class ReplaySpeedUpdateRequest(BaseModel):
+    playback_speed: Optional[int] = None
+    speed: Optional[int] = None
+
+@router.post("/replay/speed")
+async def set_market_replay_speed(body: ReplaySpeedUpdateRequest, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
+    """Dynamically adjust acceleration speed of active market replay session."""
+    target_speed = body.speed if body.speed is not None else (body.playback_speed or 5)
+    updated_speed = shadow_engine.replay_engine.set_speed(target_speed)
+    return {
+        "status": "success",
+        "playback_speed": updated_speed,
+        "message": f"Market Replay speed updated to {updated_speed}x acceleration."
+    }

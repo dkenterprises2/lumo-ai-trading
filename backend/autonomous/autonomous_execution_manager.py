@@ -119,24 +119,23 @@ class AutonomousExecutionManager:
         buy_price: float,
         book_depth_usd: float = 50000.0,
         volatility_pct: float = 2.0,
-        urgency: str = "NORMAL"
+        urgency: str = "NORMAL",
+        symbol: str = "BTC/USDT",
+        is_arbitrage: bool = True
     ) -> tuple[str, str]:
-        """Automatically selects optimal execution algorithm based on liquidity & market conditions."""
-        depth_utilization_pct = (amount_usd / max(1.0, book_depth_usd)) * 100.0
-
-        if depth_utilization_pct > 20.0:
-            alg = "ICEBERG"
-            reason = f"ICEBERG selected because requested quantity is {depth_utilization_pct:.1f}% of available depth (minimizes market impact)."
-        elif depth_utilization_pct > 10.0 or urgency == "HIGH":
-            alg = "TWAP"
-            reason = f"TWAP selected because requested quantity is {depth_utilization_pct:.1f}% of available depth (time-sliced execution)."
-        elif volatility_pct > 5.0:
-            alg = "VWAP"
-            reason = f"VWAP selected due to high volatility ({volatility_pct:.1f}%) to execute along volume profile."
-        else:
-            alg = "SMART_ROUTER"
-            reason = f"SMART_ROUTER selected for low depth utilization ({depth_utilization_pct:.1f}%) with direct venue routing."
-
+        """Automatically selects optimal execution algorithm using Phase 44.2 Autonomous Execution Planner."""
+        from backend.execution.execution_planner import execution_planner
+        quantity = amount_usd / max(1.0, buy_price)
+        alg, reason, _, _ = execution_planner.select_algorithm(
+            symbol=symbol,
+            side="BUY",
+            quantity=quantity,
+            current_price=buy_price,
+            book_depth_usd=book_depth_usd,
+            volatility_pct=volatility_pct,
+            urgency=urgency,
+            is_arbitrage=is_arbitrage
+        )
         return alg, reason
 
     def process_opportunity(self, opp: Dict[str, Any], user_id: str = "user-p41") -> Dict[str, Any]:

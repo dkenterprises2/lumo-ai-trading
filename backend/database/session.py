@@ -80,53 +80,24 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+_db_initialized = False
+
 async def init_db():
-    """Initialize database tables without dropping existing data."""
+    """Initialize database tables once without dropping existing data."""
+    global _db_initialized
+    if _db_initialized:
+        return
+
     try:
         async with async_engine.begin() as conn:
             def create_tables(sync_conn):
                 import backend.models.domain  # noqa: F401
-                for mod_name in [
-                    "backend.models.journal", "backend.models.exchange", "backend.models.strategy",
-                    "backend.models.analytics", "backend.models.ml", "backend.models.research",
-                    "backend.models.live_execution", "backend.models.observability", "backend.models.mlops",
-                    "backend.models.saas", "backend.models.compliance", "backend.models.execution_algos",
-                    "backend.models.marketdata", "backend.models.ai_agents", "backend.models.multiasset",
-                    "backend.models.saas_enterprise", "backend.models.platform_infra",
-                    "backend.models.quant_research_platform", "backend.models.alpha_factory_platform",
-                    "backend.models.execution_network_platform", "backend.models.ai_copilot_platform"
-                ]:
-                    try:
-                        __import__(mod_name)
-                    except Exception:
-                        pass
-
-                import backend.models.domain  # noqa: F401
                 Base.metadata.create_all(sync_conn)
-
-
 
             await conn.run_sync(create_tables)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
             # Auto-migrate missing columns across all domain tables
             def auto_migrate_schema(sync_conn):
-
                 from sqlalchemy import inspect, text
                 inspector = inspect(sync_conn)
                 
@@ -134,7 +105,8 @@ async def init_db():
                     user_cols = [c["name"] for c in inspector.get_columns("users")]
                     user_new_cols = [
                         ("name", "VARCHAR(128) DEFAULT 'Trader User'"),
-                        ("avatar", "VARCHAR(256) DEFAULT 'https://api.dicebear.com/7.x/avataaars/svg?seed=LumoTrader'"),
+                        ("avatar", "TEXT DEFAULT 'https://api.dicebear.com/7.x/avataaars/svg?seed=LumoTrader'"),
+                        ("currency", "VARCHAR(16) DEFAULT 'USD'"),
                         ("timezone", "VARCHAR(64) DEFAULT 'UTC'"),
                         ("trading_mode", "VARCHAR(32) DEFAULT 'Paper'"),
                         ("failed_login_attempts", "INTEGER DEFAULT 0"),
@@ -145,13 +117,19 @@ async def init_db():
                         if col_name not in user_cols:
                             sync_conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
 
+                if inspector.has_table("portfolio"):
+                    port_cols = [c["name"] for c in inspector.get_columns("portfolio")]
+                    if "default_allocation_usd" not in port_cols:
+                        sync_conn.execute(text("ALTER TABLE portfolio ADD COLUMN default_allocation_usd FLOAT DEFAULT 1000.0"))
+                    if "default_leverage" not in port_cols:
+                        sync_conn.execute(text("ALTER TABLE portfolio ADD COLUMN default_leverage INTEGER DEFAULT 1"))
+
                 user_id_tables = ["portfolio", "positions", "trades", "orders", "equity_history", "wallet_transactions", "performance", "audit_logs", "settings"]
                 for tbl in user_id_tables:
                     if inspector.has_table(tbl):
                         cols = [c["name"] for c in inspector.get_columns(tbl)]
                         if "user_id" not in cols:
                             sync_conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN user_id INTEGER"))
-
 
                 if inspector.has_table("trades"):
                     columns = [c["name"] for c in inspector.get_columns("trades")]
@@ -171,10 +149,9 @@ async def init_db():
                         if col_name not in columns:
                             sync_conn.execute(text(f"ALTER TABLE trades ADD COLUMN {col_name} {col_type}"))
 
-
             await conn.run_sync(auto_migrate_schema)
 
-
+        _db_initialized = True
         logger.info("Database schema initialized/verified successfully.")
     except Exception as e:
         import traceback

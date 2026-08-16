@@ -123,7 +123,13 @@ export default function PortfolioRiskDashboard() {
         <div className="mt-4 md:mt-0 flex items-center space-x-4">
           <div className="flex items-center space-x-2">
             <span className="text-xs text-slate-400 uppercase font-semibold">Kill-Switch:</span>
-            <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold ${isHalted ? "bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse" : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"}`}>
+            <span className={`px-2.5 py-1 rounded-full text-xs font-mono font-bold border ${
+              isHalted 
+                ? "bg-rose-500/20 text-rose-400 border-rose-500/30 animate-pulse" 
+                : killSwitch?.state === "RESTRICTED"
+                ? "bg-amber-500/20 text-amber-400 border-amber-500/30"
+                : "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
+            }`}>
               {killSwitch?.state || "NORMAL"}
             </span>
           </div>

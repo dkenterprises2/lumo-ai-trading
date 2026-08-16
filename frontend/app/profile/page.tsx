@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/context/AuthContext';
+import { useCurrency, SUPPORTED_CURRENCIES } from '@/context/CurrencyContext';
 import { API_BASE_URL } from '@/lib/config';
 import { resetPaperAccount, deleteUserAccount } from '@/services/api';
-import { ArrowLeft, Upload, Camera, ShieldCheck, Sparkles, Check, Sliders } from 'lucide-react';
+import { ArrowLeft, Upload, Camera, ShieldCheck, Sparkles, Check, Sliders, DollarSign, Globe, Coins } from 'lucide-react';
 
 const AVATAR_PRESETS = [
   { label: 'Cyber Trader', url: 'https://api.dicebear.com/7.x/avataaars/svg?seed=CyberTrader' },
@@ -19,10 +20,12 @@ const AVATAR_PRESETS = [
 
 export default function ProfilePage() {
   const { user, token, updateProfile, logout } = useAuth();
+  const { currency, setCurrency, formatCurrency, currentCurrency } = useCurrency();
 
   const [name, setName] = useState(user?.name || '');
   const [avatar, setAvatar] = useState(user?.avatar || '');
-  const [timezone, setTimezone] = useState(user?.timezone || 'UTC');
+  const [selectedCurrency, setSelectedCurrency] = useState(user?.currency || currency || 'USD');
+  const [timezone, setTimezone] = useState(user?.timezone || 'Asia/Kolkata');
   const [tradingMode, setTradingMode] = useState(user?.trading_mode || 'Paper');
 
   // Agent POV Custom Preferences State
@@ -52,18 +55,46 @@ export default function ProfilePage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState('');
 
+  // Sync state when user profile is fetched
+  useEffect(() => {
+    if (user) {
+      if (user.name) setName(user.name);
+      if (user.avatar) setAvatar(user.avatar);
+      if (user.timezone) setTimezone(user.timezone);
+      if (user.trading_mode) setTradingMode(user.trading_mode);
+      if (user.currency) {
+        setSelectedCurrency(user.currency);
+        setCurrency(user.currency);
+      }
+    }
+  }, [user]);
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.size > 3 * 1024 * 1024) {
-        setProfileErr('Image file size must be less than 3MB.');
+      if (file.size > 5 * 1024 * 1024) {
+        setProfileErr('Image file size must be less than 5MB.');
         return;
       }
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         if (typeof reader.result === 'string') {
-          setAvatar(reader.result);
-          setProfileMsg('Custom photo loaded into live preview. Click "Save Profile Changes" to update!');
+          const imgData = reader.result;
+          setAvatar(imgData);
+          setProfileMsg('Custom photo loaded! Saving to profile...');
+          // Immediate auto-save to prevent losing photo
+          try {
+            await updateProfile({
+              name: name || user?.name,
+              avatar: imgData,
+              currency: selectedCurrency,
+              timezone,
+              trading_mode: tradingMode
+            });
+            setProfileMsg('Profile photo uploaded and permanently saved!');
+          } catch (err: any) {
+            setProfileMsg('Custom photo loaded. Click "Save Profile Changes" to persist.');
+          }
         }
       };
       reader.readAsDataURL(file);
@@ -109,13 +140,15 @@ export default function ProfilePage() {
     setIsUpdatingProfile(true);
 
     try {
+      setCurrency(selectedCurrency);
       await updateProfile({
         name,
         avatar,
+        currency: selectedCurrency,
         timezone,
         trading_mode: tradingMode,
       });
-      setProfileMsg('Profile details and photo updated successfully!');
+      setProfileMsg('Profile details, photo, and currency preferences updated successfully!');
     } catch (err: any) {
       setProfileErr(err.message || 'Failed to update profile.');
     } finally {
@@ -139,19 +172,18 @@ export default function ProfilePage() {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: token ? `Bearer ${token}` : '',
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           current_password: currentPassword,
           new_password: newPassword,
           confirm_new_password: confirmNewPassword,
         }),
-        credentials: 'include',
       });
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.detail || 'Password change failed.');
+        throw new Error(data.detail || data.message || 'Password update failed');
       }
 
       setPasswordMsg('Password changed successfully!');
@@ -159,7 +191,7 @@ export default function ProfilePage() {
       setNewPassword('');
       setConfirmNewPassword('');
     } catch (err: any) {
-      setPasswordErr(err.message || 'Password change failed.');
+      setPasswordErr(err.message || 'Failed to change password.');
     } finally {
       setIsChangingPassword(false);
     }
@@ -167,26 +199,33 @@ export default function ProfilePage() {
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-slate-950 text-slate-100 p-6 lg:p-10">
-        <div className="max-w-4xl mx-auto space-y-8">
-          {/* Top Bar with Back Button */}
-          <div className="flex items-center justify-between border-b border-slate-800 pb-6">
-            <div className="flex items-center gap-4">
+      <div className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
+        <div className="max-w-6xl mx-auto space-y-8">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
+            <div className="flex items-center space-x-3">
               <Link
-                href="/"
-                className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-800 hover:border-cyan-500/50 text-slate-300 hover:text-cyan-400 rounded-xl text-xs font-semibold transition shadow-md"
+                href="/dashboard"
+                className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition"
               >
-                <ArrowLeft className="h-4 w-4" />
-                <span>Back to Terminal</span>
+                <ArrowLeft className="w-5 h-5" />
               </Link>
               <div>
-                <h1 className="text-2xl lg:text-3xl font-bold text-slate-100">User Profile</h1>
-                <p className="text-slate-400 text-xs mt-0.5">Manage your account preferences, photo, credentials, and trading rules</p>
+                <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
+                  <span>User Profile & Preferences</span>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 font-mono">
+                    {user?.role || 'TRADER'}
+                  </span>
+                </h1>
+                <p className="text-xs text-slate-400">
+                  Manage your personal account details, profile avatar, multi-currency settings, and security.
+                </p>
               </div>
             </div>
+
             <button
               onClick={logout}
-              className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-xl text-xs font-semibold transition-colors"
+              className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-semibold transition"
             >
               Sign Out
             </button>
@@ -224,6 +263,12 @@ export default function ProfilePage() {
 
               <div className="w-full pt-4 border-t border-slate-800 space-y-2 text-xs text-slate-400">
                 <div className="flex justify-between py-1">
+                  <span>Display Currency</span>
+                  <span className="font-semibold text-emerald-400 font-mono">
+                    {currentCurrency.flag} {currentCurrency.code} ({currentCurrency.symbol})
+                  </span>
+                </div>
+                <div className="flex justify-between py-1">
                   <span>Trading Mode</span>
                   <span className="font-semibold text-cyan-400">{user?.trading_mode}</span>
                 </div>
@@ -238,7 +283,6 @@ export default function ProfilePage() {
                     <span>Active Account</span>
                   </span>
                 </div>
-
               </div>
             </div>
 
@@ -300,7 +344,7 @@ export default function ProfilePage() {
                             key={preset.label}
                             type="button"
                             onClick={() => { setAvatar(preset.url); setProfileMsg(`Selected ${preset.label} avatar preset.`); }}
-                            className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition ${
+                            className={`p-2 rounded-xl border flex flex-col items-center gap-1 transition cursor-pointer ${
                               isSelected
                                 ? 'bg-cyan-500/10 border-cyan-400 text-cyan-400'
                                 : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-400'
@@ -322,32 +366,61 @@ export default function ProfilePage() {
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Multi-Currency, Timezone & Trading Mode */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {/* Currency Selector */}
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                        Timezone
+                      <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1">
+                        <Coins className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Currency</span>
+                      </label>
+                      <select
+                        value={selectedCurrency}
+                        onChange={(e) => {
+                          setSelectedCurrency(e.target.value);
+                          setCurrency(e.target.value);
+                        }}
+                        className="w-full px-3 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500 text-xs font-mono"
+                      >
+                        {SUPPORTED_CURRENCIES.map(c => (
+                          <option key={c.code} value={c.code}>
+                            {c.flag} {c.code} ({c.symbol}) - {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Timezone */}
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1">
+                        <Globe className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Timezone</span>
                       </label>
                       <select
                         value={timezone}
                         onChange={(e) => setTimezone(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500 text-sm"
+                        className="w-full px-3 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500 text-xs font-mono"
                       >
-                        <option value="UTC">UTC</option>
+                        <option value="Asia/Kolkata">Asia/Kolkata (IST +05:30)</option>
+                        <option value="UTC">UTC (+00:00)</option>
                         <option value="America/New_York">America/New_York (EST)</option>
                         <option value="Europe/London">Europe/London (GMT)</option>
+                        <option value="Asia/Dubai">Asia/Dubai (GST)</option>
+                        <option value="Asia/Singapore">Asia/Singapore (SGT)</option>
                         <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
-                        <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
                       </select>
                     </div>
 
+                    {/* Trading Mode */}
                     <div>
-                      <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                        Trading Mode
+                      <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2 flex items-center gap-1">
+                        <Sliders className="w-3.5 h-3.5 text-purple-400" />
+                        <span>Trading Mode</span>
                       </label>
                       <select
                         value={tradingMode}
                         onChange={(e) => setTradingMode(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500 text-sm"
+                        className="w-full px-3 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500 text-xs font-mono"
                       >
                         <option value="Paper">Paper Trading (Simulated)</option>
                         <option value="Live">Live Trading (Exchange API)</option>
@@ -358,75 +431,31 @@ export default function ProfilePage() {
                   <button
                     type="submit"
                     disabled={isUpdatingProfile}
-                    className="py-3 px-6 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl transition-colors text-xs uppercase tracking-wider disabled:opacity-50 shadow-lg shadow-cyan-500/20"
+                    className="w-full py-3 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-xl text-sm transition transform active:scale-98 cursor-pointer flex items-center justify-center space-x-2"
                   >
-                    {isUpdatingProfile ? 'Saving...' : 'Save Profile Changes'}
+                    {isUpdatingProfile ? (
+                      <span>Saving Profile Changes...</span>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Save Profile & Currency Changes</span>
+                      </>
+                    )}
                   </button>
                 </form>
               </div>
 
-              {/* Agent Point of View: Execution & Trading Preferences Card */}
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <h3 className="text-lg font-semibold text-slate-100 border-b border-slate-800 pb-3 flex items-center gap-2">
-                  <Sliders className="w-4 h-4 text-cyan-400" />
-                  <span>Execution & Trading Rules (Agent POV Recommendations)</span>
-                </h3>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
-                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
-                    <label className="block text-[11px] font-semibold text-slate-400">Default Allocation ($ USDT)</label>
-                    <input
-                      type="number"
-                      value={defaultOrderSize}
-                      onChange={(e) => setDefaultOrderSize(e.target.value)}
-                      className="w-full bg-transparent text-slate-100 font-bold text-sm focus:outline-none"
-                    />
-                  </div>
-
-                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1">
-                    <label className="block text-[11px] font-semibold text-slate-400">Preferred Leverage</label>
-                    <select
-                      value={preferredLeverage}
-                      onChange={(e) => setPreferredLeverage(e.target.value)}
-                      className="w-full bg-transparent text-slate-100 font-bold text-sm focus:outline-none"
-                    >
-                      <option value="1" className="bg-slate-900">1x (Spot)</option>
-                      <option value="2" className="bg-slate-900">2x</option>
-                      <option value="5" className="bg-slate-900">5x</option>
-                      <option value="10" className="bg-slate-900">10x</option>
-                      <option value="20" className="bg-slate-900">20x</option>
-                    </select>
-                  </div>
-
-                  <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl space-y-1 flex flex-col justify-between">
-                    <label className="block text-[11px] font-semibold text-slate-400">Execution Sound Alerts</label>
-                    <button
-                      type="button"
-                      onClick={() => setNotificationsEnabled(!notificationsEnabled)}
-                      className={`text-xs font-bold px-2 py-1 rounded-lg w-fit transition ${
-                        notificationsEnabled ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
-                      }`}
-                    >
-                      {notificationsEnabled ? 'Enabled' : 'Disabled'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-
-              {/* Change Password Form */}
-
-
+              {/* Password Management */}
               <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 space-y-6">
-                <h3 className="text-lg font-semibold text-slate-100 border-b border-slate-800 pb-3">Change Security Password</h3>
+                <h3 className="text-lg font-semibold text-slate-100 border-b border-slate-800 pb-3">Security & Password</h3>
 
                 {passwordMsg && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-sm">
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-semibold">
                     {passwordMsg}
                   </div>
                 )}
                 {passwordErr && (
-                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-sm">
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs font-semibold">
                     {passwordErr}
                   </div>
                 )}
@@ -441,7 +470,7 @@ export default function ProfilePage() {
                       required
                       value={currentPassword}
                       onChange={(e) => setCurrentPassword(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500"
+                      className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500 text-sm"
                     />
                   </div>
 
@@ -455,10 +484,9 @@ export default function ProfilePage() {
                         required
                         value={newPassword}
                         onChange={(e) => setNewPassword(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500"
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500 text-sm"
                       />
                     </div>
-
                     <div>
                       <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
                         Confirm New Password
@@ -468,7 +496,7 @@ export default function ProfilePage() {
                         required
                         value={confirmNewPassword}
                         onChange={(e) => setConfirmNewPassword(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500"
+                        className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 focus:outline-none focus:border-cyan-500 text-sm"
                       />
                     </div>
                   </div>
@@ -476,124 +504,130 @@ export default function ProfilePage() {
                   <button
                     type="submit"
                     disabled={isChangingPassword}
-                    className="py-3 px-6 bg-slate-800 hover:bg-slate-700 text-slate-100 font-semibold rounded-xl transition-colors disabled:opacity-50"
+                    className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold rounded-xl text-sm transition"
                   >
-                    {isChangingPassword ? 'Updating Password...' : 'Update Password'}
+                    {isChangingPassword ? 'Changing Password...' : 'Update Password'}
                   </button>
                 </form>
               </div>
 
-              {/* Danger Zone & Account Management */}
-              <div className="bg-slate-900/80 border border-rose-500/30 rounded-2xl p-6 space-y-6">
-                <h3 className="text-lg font-semibold text-rose-400 border-b border-slate-800 pb-3 flex items-center gap-2">
-                  <span>Danger Zone & Account Management</span>
-                </h3>
+              {/* Danger Zone */}
+              <div className="bg-rose-950/20 border border-rose-900/40 rounded-2xl p-6 space-y-6">
+                <h3 className="text-lg font-semibold text-rose-400 border-b border-rose-900/40 pb-3">Danger Zone</h3>
 
                 {actionMsg && (
-                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-sm">
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs font-semibold">
                     {actionMsg}
                   </div>
                 )}
                 {actionErr && (
-                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-sm">
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs font-semibold">
                     {actionErr}
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Option 1: Reset Paper Account */}
-                  <div className="p-4 bg-slate-950/60 border border-slate-800 rounded-xl space-y-3">
-                    <div>
-                      <h4 className="font-bold text-slate-200 text-sm">Reset Paper Account</h4>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Resets paper wallet balance back to default $10,000.00 USDT and clears all open positions & trade history.
-                      </p>
-                    </div>
-                    {!showResetConfirm ? (
-                      <button
-                        type="button"
-                        onClick={() => { setActionMsg(''); setActionErr(''); setShowResetConfirm(true); }}
-                        className="w-full py-2.5 px-4 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-semibold transition"
-                      >
-                        Reset Paper Account to Default ($10,000)
-                      </button>
-                    ) : (
-                      <div className="space-y-2 pt-2 border-t border-slate-800">
-                        <p className="text-xs text-amber-400 font-semibold">Confirm reset to $10,000 USDT default?</p>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            disabled={isResettingAccount}
-                            onClick={handleResetAccount}
-                            className="flex-1 py-2 px-3 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold rounded-lg transition disabled:opacity-50"
-                          >
-                            {isResettingAccount ? 'Resetting...' : 'Yes, Reset Now'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setShowResetConfirm(false)}
-                            className="py-2 px-3 bg-slate-800 text-slate-300 text-xs font-semibold rounded-lg hover:bg-slate-700 transition"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <div>
+                    <div className="font-semibold text-sm text-slate-200">Reset Paper Trading Account</div>
+                    <div className="text-xs text-slate-400 mt-0.5">Wipe all simulated open positions and reset starting cash to $10,000.00.</div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowResetConfirm(true)}
+                    className="px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded-xl text-xs font-semibold transition"
+                  >
+                    Reset Paper Account
+                  </button>
+                </div>
 
-                  {/* Option 2: Delete Account */}
-                  <div className="p-4 bg-slate-950/60 border border-rose-500/20 rounded-xl space-y-3">
-                    <div>
-                      <h4 className="font-bold text-rose-400 text-sm">Delete Account Permanently</h4>
-                      <p className="text-xs text-slate-400 mt-1">
-                        Permanently deletes your account credentials, API keys, sessions, and all trading data.
-                      </p>
-                    </div>
-                    {!showDeleteConfirm ? (
-                      <button
-                        type="button"
-                        onClick={() => { setActionMsg(''); setActionErr(''); setShowDeleteConfirm(true); }}
-                        className="w-full py-2.5 px-4 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-semibold transition"
-                      >
-                        Delete Account
-                      </button>
-                    ) : (
-                      <div className="space-y-2 pt-2 border-t border-slate-800">
-                        <p className="text-[11px] text-rose-400 font-semibold">Type DELETE to confirm permanent deletion:</p>
-                        <input
-                          type="text"
-                          placeholder="Type DELETE"
-                          value={deleteInput}
-                          onChange={(e) => setDeleteInput(e.target.value)}
-                          className="w-full px-3 py-1.5 bg-slate-950 border border-rose-500/40 rounded-lg text-xs text-slate-100 focus:outline-none"
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            disabled={isDeletingAccount || deleteInput.trim().toUpperCase() !== 'DELETE'}
-                            onClick={handleDeleteAccount}
-                            className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold rounded-lg transition disabled:opacity-40"
-                          >
-                            {isDeletingAccount ? 'Deleting...' : 'Permanently Delete'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => { setShowDeleteConfirm(false); setDeleteInput(''); }}
-                            className="py-2 px-3 bg-slate-800 text-slate-300 text-xs font-semibold rounded-lg hover:bg-slate-700 transition"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <div>
+                    <div className="font-semibold text-sm text-rose-300">Delete User Account</div>
+                    <div className="text-xs text-slate-400 mt-0.5">Permanently delete your account, API keys, journal, and trading history.</div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="px-4 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl text-xs font-semibold transition"
+                  >
+                    Delete Account
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
+        {/* Reset Confirmation Modal */}
+        {showResetConfirm && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full space-y-4 shadow-2xl">
+              <h4 className="text-lg font-bold text-slate-100">Reset Paper Account?</h4>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                This will reset your paper trading balance back to 10,000.00 USDT, wipe all open positions, and clear simulated orders.
+              </p>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowResetConfirm(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold hover:bg-slate-700 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResetAccount}
+                  disabled={isResettingAccount}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl text-xs font-bold transition"
+                >
+                  {isResettingAccount ? 'Resetting...' : 'Confirm Reset'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+            <div className="bg-slate-900 border border-rose-900/50 p-6 rounded-2xl max-w-md w-full space-y-4 shadow-2xl">
+              <h4 className="text-lg font-bold text-rose-400">Permanently Delete Account?</h4>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                This action is irreversible. All trading history, strategy records, and configuration will be permanently purged.
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Type <span className="text-rose-400 font-mono">DELETE</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={deleteInput}
+                  onChange={(e) => setDeleteInput(e.target.value)}
+                  placeholder="DELETE"
+                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-sm font-mono text-slate-100 focus:outline-none focus:border-rose-500"
+                />
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-xl text-xs font-semibold hover:bg-slate-700 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteAccount}
+                  disabled={isDeletingAccount}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition"
+                >
+                  {isDeletingAccount ? 'Deleting...' : 'Permanently Delete'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </ProtectedRoute>
   );
 }
-

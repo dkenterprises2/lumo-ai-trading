@@ -75,11 +75,9 @@ export const sidebarItems: SidebarItem[] = [
   { id: "bots", label: "Bots", href: "/bots", icon: Bot, category: "Analytics" },
 
   // Enterprise AI & Governance
-  { id: "nl-strategy", label: "NL Strategy Builder", href: "/nl-strategy-builder", icon: ChessKnight, category: "Enterprise" },
+  { id: "operations-ai", label: "Operations AI (SRE)", href: "/operations-ai", icon: ShieldAlert, category: "Enterprise" },
   { id: "portfolio-assistant", label: "Portfolio Assistant", href: "/portfolio-assistant", icon: TrendingUp, category: "Enterprise" },
   { id: "investigations", label: "Trade RCA", href: "/investigations", icon: Crosshair, category: "Enterprise" },
-  { id: "operations-ai", label: "Operations AI (SRE)", href: "/operations-ai", icon: ShieldAlert, category: "Enterprise" },
-  { id: "rag-library", label: "RAG Knowledge", href: "/rag-library", icon: BookOpen, category: "Enterprise" },
   { id: "orchestration", label: "Agent Orchestration", href: "/orchestration", icon: Zap, category: "Enterprise" },
   { id: "ai-actions", label: "AI Governance", href: "/governance/ai-actions", icon: Award, category: "Enterprise" },
 

@@ -21,6 +21,7 @@ class ShadowMarketReplay:
 
     def __init__(self):
         self.active_sessions: Dict[str, ReplaySession] = {}
+        self.default_playback_speed: int = 5
 
     def start_replay(
         self,
@@ -30,12 +31,14 @@ class ShadowMarketReplay:
     ) -> ReplaySession:
         now = time.time()
         start_t = now - (duration_hours * 3600.0)
+        chosen_speed = min(100, max(1, playback_speed or self.default_playback_speed))
+        self.default_playback_speed = chosen_speed
 
         session = ReplaySession(
             symbol=symbol.upper(),
             start_time=start_t,
             end_time=now,
-            playback_speed=min(50, max(1, playback_speed)),
+            playback_speed=chosen_speed,
             current_timestamp=start_t,
             status="RUNNING"
         )
@@ -46,4 +49,15 @@ class ShadowMarketReplay:
         session = self.active_sessions.get(session_id)
         if session:
             session.status = "COMPLETED"
+            self.active_sessions.pop(session_id, None)
         return session
+
+    def set_speed(self, speed: int, session_id: Optional[str] = None) -> int:
+        clamped = min(100, max(1, speed))
+        self.default_playback_speed = clamped
+        if session_id and session_id in self.active_sessions:
+            self.active_sessions[session_id].playback_speed = clamped
+        else:
+            for s in self.active_sessions.values():
+                s.playback_speed = clamped
+        return clamped
