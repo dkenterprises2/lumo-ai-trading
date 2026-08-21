@@ -62,13 +62,24 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
       setErrorMessage(null);
 
       const controller = new AbortController();
-      timeoutId = setTimeout(() => controller.abort(), 5000);
+      timeoutId = setTimeout(() => controller.abort(), 15000);
 
-      const res = await apiFetch('/api/preferences/trading', {
-        method: 'PUT',
-        body: JSON.stringify(newPrefs),
-        signal: controller.signal
-      });
+      let res: Response;
+      try {
+        res = await apiFetch('/api/preferences/trading', {
+          method: 'PUT',
+          body: JSON.stringify(newPrefs),
+          signal: controller.signal
+        });
+      } catch (fetchErr) {
+        // Direct local fallback
+        res = await fetch('http://127.0.0.1:8000/api/preferences/trading', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newPrefs),
+          signal: controller.signal
+        });
+      }
       if (timeoutId) clearTimeout(timeoutId);
       
       let data: any = null;
