@@ -53,9 +53,14 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
     }
   };
 
+  const normalizedPositions: Position[] = useMemo(() => {
+    if (!positions) return [];
+    return Array.isArray(positions) ? (positions as Position[]) : (Object.values(positions) as Position[]);
+  }, [positions]);
+
   const sortedPositions = useMemo(() => {
-    if (!positions || positions.length === 0) return [];
-    const activeList = positions.filter(p => !optimisticClosedSymbols.has(p.symbol));
+    if (normalizedPositions.length === 0) return [];
+    const activeList = normalizedPositions.filter(p => p && !optimisticClosedSymbols.has(p.symbol));
     return [...activeList].sort((a, b) => {
 
       let valA: any = a[sortField];
@@ -76,7 +81,7 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
         ? (valA > valB ? 1 : -1)
         : (valA < valB ? 1 : -1);
     });
-  }, [positions, sortField, sortDirection]);
+  }, [normalizedPositions, optimisticClosedSymbols, sortField, sortDirection]);
 
   const renderSortIndicator = (field: SortField) => {
     if (sortField !== field) {
@@ -103,7 +108,7 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
         </div>
 
         <span className="text-xs font-semibold px-2.5 py-1 rounded-xl bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
-          {positions ? positions.length : 0} Positions Open
+          {normalizedPositions.length} Positions Open
         </span>
       </div>
 
@@ -157,8 +162,12 @@ export function ActivePositionsTable({ positions, onAction }: ActivePositionsTab
                 const pnlVal = pos.unrealized_pnl_usd || 0;
                 const pctVal = pos.unrealized_pnl_pct || 0;
                 const isProfit = pnlVal >= 0;
-                const formattedMoney = isProfit ? `+$${pnlVal.toFixed(2)}` : `-$${Math.abs(pnlVal).toFixed(2)}`;
-                const formattedPct = isProfit ? `+${pctVal.toFixed(2)}%` : `-${Math.abs(pctVal).toFixed(2)}%`;
+                const formattedMoney = Math.abs(pnlVal) > 0 && Math.abs(pnlVal) < 0.01
+                  ? `${isProfit ? "+" : "-"}$${Math.abs(pnlVal).toFixed(4)}`
+                  : `${isProfit ? "+" : "-"}$${Math.abs(pnlVal).toFixed(2)}`;
+                const formattedPct = Math.abs(pctVal) > 0 && Math.abs(pctVal) < 0.01
+                  ? `${isProfit ? "+" : "-"}${Math.abs(pctVal).toFixed(4)}%`
+                  : `${isProfit ? "+" : "-"}${Math.abs(pctVal).toFixed(2)}%`;
 
                 const isClosing = loadingActionKey === `${pos.symbol}-CLOSE`;
                 const isPartialing = loadingActionKey === `${pos.symbol}-PARTIAL_CLOSE`;

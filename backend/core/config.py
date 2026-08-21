@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     ]
 
     # Trading Engine Defaults
+    LIVE_TRADING_ENABLED: bool = False             # Strict safety invariant: live trading disabled
     PAPER_TRADING_INITIAL_BALANCE: float = 10000.0  # Virtual USDT
     DEFAULT_RISK_PER_TRADE_PCT: float = 2.0         # 2% portfolio risk per position
     MAX_DAILY_LOSS_PCT: float = 5.0                # 5% max portfolio daily loss

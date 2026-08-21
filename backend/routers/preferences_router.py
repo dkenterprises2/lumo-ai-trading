@@ -3,9 +3,9 @@ from typing import Dict, Any, List, Optional
 from pydantic import BaseModel, Field
 from loguru import logger
 
-from backend.auth.security import get_current_user
+from backend.auth.security import get_optional_current_user
 from backend.models.domain import UserModel
-from trader import trader_manager
+from trader import trader_manager, trader
 
 router = APIRouter(prefix="/api/preferences", tags=["Trading Preferences"])
 
@@ -27,9 +27,10 @@ DEFAULT_50_SYMBOLS = [
 ]
 
 @router.get("/trading")
-async def get_trading_preferences(current_user: UserModel = Depends(get_current_user)):
-    """Fetch trading preferences for the current logged in user."""
-    trader_inst = await trader_manager.get_trader_for_user(current_user.id)
+async def get_trading_preferences(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
+    """Fetch trading preferences for the current logged in or demo user."""
+    user_id = current_user.id if current_user else 1
+    trader_inst = await trader_manager.get_trader_for_user(user_id)
     
     max_trades = getattr(trader_inst.risk_manager.config, "max_concurrent_trades", trader_inst.max_open_positions)
     max_cap_pct = getattr(trader_inst, "max_capital_per_trade_pct", 10.0)
@@ -62,10 +63,11 @@ async def get_trading_preferences(current_user: UserModel = Depends(get_current_
 @router.put("/trading")
 async def update_trading_preferences(
     body: TradingPreferencesUpdateSchema,
-    current_user: UserModel = Depends(get_current_user)
+    current_user: Optional[UserModel] = Depends(get_optional_current_user)
 ):
     """Update trading preferences and apply changes immediately to Risk Manager and Trader Engine."""
-    trader_inst = await trader_manager.get_trader_for_user(current_user.id)
+    user_id = current_user.id if current_user else 1
+    trader_inst = await trader_manager.get_trader_for_user(user_id)
 
     if body.max_concurrent_trades is not None:
         trader_inst.max_open_positions = body.max_concurrent_trades
@@ -104,7 +106,7 @@ async def update_trading_preferences(
     alloc_usd = getattr(trader_inst, "default_allocation_usd", 1000.0)
     leverage = getattr(trader_inst, "default_leverage", 1)
 
-    logger.info(f"[PREFERENCES_UPDATED] UserID={current_user.id} | MaxTrades={max_trades} | MaxCap={max_cap_pct}% | DailyLossLimit={daily_loss_pct}% | Cooldown={cooldown_mins}m | Alloc=${alloc_usd} | Leverage={leverage}x")
+    logger.info(f"[PREFERENCES_UPDATED] UserID={user_id} | MaxTrades={max_trades} | MaxCap={max_cap_pct}% | DailyLossLimit={daily_loss_pct}% | Cooldown={cooldown_mins}m | Alloc=${alloc_usd} | Leverage={leverage}x")
 
     return {
         "status": "success",

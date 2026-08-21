@@ -289,10 +289,11 @@ class InstitutionalPortfolioRiskEngine:
             streak_mult = p_state.metadata.get("streak", {}).get("streak_risk_multiplier", 1.0)
             regime_mult = p_state.metadata.get("regime", {}).get("position_size_multiplier", 1.0)
 
+            user_cap_pct = getattr(user_trader, 'max_capital_per_trade_pct', 10.0)
             sizing_res = self.sizing_engine.compute_size(
                 base_allocation_usd=requested_allocation_usd,
                 portfolio_equity=p_state.equity,
-                max_capital_per_trade_pct=10.0,
+                max_capital_per_trade_pct=user_cap_pct,
                 volatility_mult=vol_mult,
                 drawdown_mult=dd_mult,
                 streak_mult=streak_mult,

@@ -18,44 +18,71 @@ export function formatCryptoPrice(price: number | undefined | null): string {
   if (price === 0) return "$0.00";
   if (price < 0.0001) return `$${price.toFixed(8)}`;
   if (price < 0.01) return `$${price.toFixed(6)}`;
+  if (price < 0.1) return `$${price.toFixed(5)}`;
   if (price < 1.0) return `$${price.toFixed(4)}`;
-  return `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `$${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
 }
 
 export function TradeHistoryTable({ trades: propTrades }: TradeHistoryTableProps) {
-  const [unifiedTrades, setUnifiedTrades] = useState<any[]>([]);
+  // Normalize incoming prop trades immediately
+  const normalizedPropTrades = useMemo(() => {
+    if (!propTrades || !Array.isArray(propTrades) || propTrades.length === 0) return [];
+    return propTrades.map((t: any, idx: number) => ({
+      id: t.id || `SPOT_${t.symbol || 'PAIR'}_${t.exit_time || t.entry_time || idx}`,
+      subsystem: t.subsystem || "SPOT",
+      symbol: t.symbol || "UNKNOWN",
+      side: t.side || "BUY",
+      entry_price: typeof t.entry_price === "number" ? t.entry_price : parseFloat(t.entry_price || "0") || 0,
+      exit_price: typeof t.exit_price === "number" ? t.exit_price : parseFloat(t.exit_price || "0") || 0,
+      amount: typeof t.amount === "number" ? t.amount : parseFloat(t.amount || "0") || 0,
+      margin_usd: typeof t.margin_usd === "number" ? t.margin_usd : parseFloat(t.margin_usd || "0") || 0,
+      pnl_usd: typeof t.pnl_usd === "number" ? t.pnl_usd : parseFloat(t.pnl_usd ?? t.net_pnl ?? t.pnl ?? "0") || 0,
+      pnl_pct: typeof t.pnl_pct === "number" ? t.pnl_pct : parseFloat(t.pnl_pct || "0") || 0,
+      status: t.status || "CLOSED",
+      reason: t.close_reason || t.reason || "Spot AI Paper Trading",
+      venue: t.exchange || t.venue || "BINANCE",
+      time: t.exit_time || t.entry_time || t.time || ""
+    }));
+  }, [propTrades]);
+
+  const [unifiedTrades, setUnifiedTrades] = useState<any[]>(normalizedPropTrades);
   const [loading, setLoading] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<SubsystemFilter>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [sortField, setSortField] = useState<SortField>("time");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
+  // Keep state synchronized with incoming WebSocket prop trades
+  useEffect(() => {
+    if (normalizedPropTrades.length > 0) {
+      setUnifiedTrades(prev => {
+        if (!prev || prev.length === 0) {
+          return normalizedPropTrades;
+        }
+        const nonSpot = prev.filter(t => (t.subsystem || "SPOT") !== "SPOT");
+        return [...normalizedPropTrades, ...nonSpot];
+      });
+    }
+  }, [normalizedPropTrades]);
+
   const loadTrades = async () => {
     try {
       setLoading(true);
       const res = await fetchAllUnifiedTrades();
-      if (res && res.trades) {
-        setUnifiedTrades(res.trades);
+      if (res && Array.isArray(res.trades) && res.trades.length > 0) {
+        const spotFromApi = res.trades.filter((t: any) => (t.subsystem || "SPOT") === "SPOT");
+        if (spotFromApi.length === 0 && normalizedPropTrades.length > 0) {
+          setUnifiedTrades([...normalizedPropTrades, ...res.trades]);
+        } else {
+          setUnifiedTrades(res.trades);
+        }
+      } else if (normalizedPropTrades.length > 0) {
+        setUnifiedTrades(normalizedPropTrades);
       }
     } catch (e) {
       console.warn("Failed to load unified trades, using prop fallback:", e);
-      if (propTrades && propTrades.length > 0) {
-        setUnifiedTrades(propTrades.map(t => ({
-          id: t.id,
-          subsystem: "SPOT",
-          symbol: t.symbol,
-          side: t.side,
-          entry_price: t.entry_price,
-          exit_price: t.exit_price,
-          amount: t.amount,
-          margin_usd: t.margin_usd,
-          pnl_usd: t.pnl_usd,
-          pnl_pct: t.pnl_pct,
-          status: t.status || "CLOSED",
-          reason: t.close_reason || t.reason || "Auto-Bot Strategy",
-          venue: t.exchange || "BINANCE",
-          time: t.exit_time || t.entry_time || ""
-        })));
+      if (normalizedPropTrades.length > 0) {
+        setUnifiedTrades(normalizedPropTrades);
       }
     } finally {
       setLoading(false);
@@ -77,8 +104,16 @@ export function TradeHistoryTable({ trades: propTrades }: TradeHistoryTableProps
     }
   };
 
+  // Effective trades to display: prioritize unifiedTrades, fallback to normalizedPropTrades
+  const effectiveTrades = useMemo(() => {
+    if (unifiedTrades && unifiedTrades.length > 0) {
+      return unifiedTrades;
+    }
+    return normalizedPropTrades;
+  }, [unifiedTrades, normalizedPropTrades]);
+
   const filteredTrades = useMemo(() => {
-    let list = [...unifiedTrades];
+    let list = [...effectiveTrades];
 
     if (activeTab !== "ALL") {
       list = list.filter(t => (t.subsystem || "SPOT").toUpperCase() === activeTab);
@@ -126,7 +161,7 @@ export function TradeHistoryTable({ trades: propTrades }: TradeHistoryTableProps
     });
 
     return list;
-  }, [unifiedTrades, activeTab, searchQuery, sortField, sortDirection]);
+  }, [effectiveTrades, activeTab, searchQuery, sortField, sortDirection]);
 
   const exportTrades = (format: "csv" | "excel") => {
     if (!filteredTrades || filteredTrades.length === 0) return;
@@ -192,9 +227,9 @@ export function TradeHistoryTable({ trades: propTrades }: TradeHistoryTableProps
     );
   };
 
-  const spotCount = unifiedTrades.filter(t => (t.subsystem || "SPOT") === "SPOT").length;
-  const arbCount = unifiedTrades.filter(t => t.subsystem === "ARBITRAGE").length;
-  const shadowCount = unifiedTrades.filter(t => t.subsystem === "SHADOW").length;
+  const spotCount = effectiveTrades.filter(t => (t.subsystem || "SPOT") === "SPOT").length;
+  const arbCount = effectiveTrades.filter(t => t.subsystem === "ARBITRAGE").length;
+  const shadowCount = effectiveTrades.filter(t => t.subsystem === "SHADOW").length;
 
   return (
     <div className="space-y-4">
@@ -204,7 +239,7 @@ export function TradeHistoryTable({ trades: propTrades }: TradeHistoryTableProps
         {/* Tabs */}
         <div className="flex items-center gap-2 overflow-x-auto">
           {[
-            { id: "ALL", label: `All Trades (${unifiedTrades.length})`, icon: History },
+            { id: "ALL", label: `All Trades (${effectiveTrades.length})`, icon: History },
             { id: "SPOT", label: `Spot AI (${spotCount})`, icon: TrendingUp, color: "text-cyan-400" },
             { id: "ARBITRAGE", label: `Arbitrage (${arbCount})`, icon: Zap, color: "text-amber-400" },
             { id: "SHADOW", label: `Shadow Replay (${shadowCount})`, icon: Layers, color: "text-purple-400" }

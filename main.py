@@ -11,6 +11,7 @@ from typing import Optional, Dict, List, Any
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Query, Body, WebSocket, WebSocketDisconnect, Depends
 
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -50,6 +51,7 @@ async def lifespan(app: FastAPI):
         logger.error(f"[LIFESPAN] Error during init_db: {e}")
 
     await trader.initialize_and_restore_state()
+    await trader_manager.load_all_traders_from_db()
     logger.info(f"[LIFESPAN] State restoration complete. Final state: {trader.state}")
 
     logger.info("[STARTUP] Printing all registered FastAPI routes during startup:")
@@ -72,17 +74,32 @@ async def lifespan(app: FastAPI):
 
         # Initialize Continuous 24/7 Arbitrage, Shadow Replay, and Autonomous Engines
         try:
+            from backend.arbitrage import arbitrage_background_scanner
+            arbitrage_background_scanner.start()
             from backend.routers import arbitrage_router
             arbitrage_router.shadow_active = True
             from backend.shadow_trading import shadow_engine
             shadow_engine.status = "RUNNING"
             from backend.autonomous.autonomous_engine import autonomous_engine
             autonomous_engine.start()
-            logger.info("[LIFESPAN] Arbitrage Router, Shadow Engine & Autonomous Engine ACTIVATED (Continuous 24/7 Mode).")
+            from backend.shadow_trading.shadow_autonomous_learner import shadow_autonomous_learner
+            shadow_autonomous_learner.start()
+            from backend.spot_research.spot_autonomous_bot import spot_autonomous_bot
+            if spot_autonomous_bot.config.is_enabled:
+                spot_autonomous_bot.start()
+                logger.info("[LIFESPAN] Spot Autonomous Learner Bot ACTIVATED 24/7.")
+            logger.info("[LIFESPAN] Arbitrage Scanner, Shadow Engine, Autonomous Engine & Shadow Autonomous Learner ACTIVATED 24/7.")
         except Exception as e:
             logger.error(f"[LIFESPAN] Error starting background engines: {e}")
 
     yield
+
+    # Clean shutdown
+    try:
+        from backend.arbitrage import arbitrage_background_scanner
+        arbitrage_background_scanner.stop()
+    except Exception:
+        pass
 
 app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
 
@@ -112,6 +129,7 @@ elif isinstance(raw_cors, (list, tuple)):
 
 cors_origins = list(dict.fromkeys(cors_origins))
 
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
@@ -198,7 +216,12 @@ from backend.routers.news_router import router as news_router
 from backend.routers.autonomous_router import router as autonomous_router
 from backend.autonomous_validation.validation_router import router as validation_router
 
+from backend.routers.wallet_router import router as wallet_router
+from backend.routers.brain_router import router as brain_router
+
 app.include_router(auth_router)
+app.include_router(wallet_router)
+app.include_router(brain_router)
 app.include_router(preferences_router)
 app.include_router(portfolio_risk_router)
 app.include_router(execution_router)
@@ -240,6 +263,8 @@ app.include_router(alpha_factory_router)
 app.include_router(execution_network_router)
 app.include_router(ai_copilot_router)
 app.include_router(learning_router)
+from backend.routers.spot_research_router import router as spot_research_router
+app.include_router(spot_research_router)
 
 
 
@@ -287,6 +312,8 @@ class ConnectionManager:
         if websocket not in self.active_connections:
             self.active_connections.append(websocket)
         self.connection_users[websocket] = user_id
+        # Invalidate last hash so new connection immediately receives updates
+        self.user_last_hashes[user_id] = ""
         logger.info(f"WebSocket client authenticated as user_id={user_id}. Active: {len(self.active_connections)}")
 
     def disconnect(self, websocket: WebSocket):
@@ -328,7 +355,7 @@ class ConnectionManager:
                 "active_strategy": user_trader.active_strategy,
                 "risk_mode": user_trader.risk_mode
             }
-            active_positions = list(user_trader.positions.values())
+            active_positions = portfolio_summary.get("active_positions", [])
 
             user_payload = {
                 "type": "TICKER_UPDATE",
@@ -457,11 +484,35 @@ async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(
     try:
         from backend.telemetry import ws_metrics
         ws_metrics.register_client()
+
+        # Send immediate initial state snapshot so page renders in 0ms without waiting for ticker tick
+        try:
+            curr_prices = get_current_prices_dict()
+            u_trader = await trader_manager.get_trader_for_user(user_id) if user_id else trader
+            p_summary = u_trader.get_portfolio_summary(curr_prices)
+            init_payload = {
+                "type": "TICKER_UPDATE",
+                "timestamp": time.time(),
+                "prices": curr_prices,
+                "scanner": scanner_cache,
+                "portfolio": p_summary,
+                "positions": p_summary.get("active_positions", []),
+                "bot_status": {
+                    "auto_bot_enabled": u_trader.auto_bot_enabled,
+                    "active_strategy": u_trader.active_strategy,
+                    "risk_mode": u_trader.risk_mode
+                },
+                "market_data": market_engine.get_market_health_summary()
+            }
+            await websocket.send_json(init_payload)
+        except Exception as init_err:
+            logger.warning(f"[WS_INIT_SNAPSHOT_ERROR] {init_err}")
+
         while True:
             # Keep-alive heartbeat & ping listener
             data = await websocket.receive_text()
             if data == "ping":
-                await websocket.send_json({"type": "pong", "timestamp": time.time()})
+                await websocket.send_json({"type": "pong", "timestamp": time.time(), "status": "live"})
     except WebSocketDisconnect:
         logger.info("WS client disconnected")
         from backend.telemetry import ws_metrics
@@ -552,80 +603,83 @@ async def get_multi_symbol_scanner():
     """Multi-Symbol Scanner API across all 14 supported crypto pairs."""
     return scanner_cache
 
-@app.get("/api/portfolio")
-async def get_portfolio(current_user: UserModel = Depends(get_current_user)):
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
+def get_current_prices_dict() -> Dict[str, float]:
+    """Fast non-blocking cache-first price resolution for all symbols."""
     current_prices = {}
+    from market_data import is_valid_price
+    with market_engine._lock:
+        for k, v in market_engine.price_cache.items():
+            if is_valid_price(v):
+                current_prices[k] = v
+
     for sym in settings.SUPPORTED_SYMBOLS:
-        current_prices[sym] = market_engine.price_cache.get(sym, market_engine.fetch_current_price(sym))
+        if sym not in current_prices or not is_valid_price(current_prices[sym]):
+            _, base_p = market_engine.emergency_baselines.get(sym, ("unknown", 1.0))
+            current_prices[sym] = base_p
+    return current_prices
+
+@app.get("/api/portfolio")
+async def get_portfolio(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
+    current_prices = get_current_prices_dict()
 
     user_trader.check_stop_loss_take_profit(current_prices)
     return user_trader.get_portfolio_summary(current_prices)
 
-@app.post("/api/wallet/reset-paper-account")
-@app.post("/api/portfolio/reset")
-@app.post("/api/trader/reset")
-async def reset_paper_account_api(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
-    """Reset paper trading account balance to default $10,000 USDT and clear all positions & trade history across Spot, Arbitrage & Shadow."""
-    user_id = current_user.id if current_user else 1
-    user_trader = await trader_manager.get_trader_for_user(user_id)
-    res = await user_trader.reset_paper_account_async(default_balance=10000.0)
-
-    # Reset all active memory trader instances
-    for tr in list(trader_manager.traders.values()):
-        try:
-            tr.positions.clear()
-            tr.orders.clear()
-            tr.trade_history.clear()
-            tr.usdt_balance = 10000.0
-            tr.initial_balance = 10000.0
-            tr.auto_bot_enabled = False
-        except Exception:
-            pass
-
-    # 1. Cleanly wipe all database tables for all user partitions
+@app.post("/api/arbitrage/reset")
+async def reset_arbitrage_data():
+    """Clear all test/synthetic arbitrage execution records and reset metrics counters."""
     try:
-        import sqlite3
-        db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
-        conn = sqlite3.connect(db_path, timeout=30.0)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA busy_timeout=30000;")
-        cur = conn.cursor()
-        cur.execute("DELETE FROM positions;")
-        cur.execute("DELETE FROM orders;")
-        cur.execute("DELETE FROM trades;")
-        cur.execute("DELETE FROM equity_history;")
-        cur.execute("UPDATE portfolio SET usdt_balance = 10000.0, initial_balance = 10000.0, margin_used = 0.0, total_value = 10000.0, auto_bot_enabled = 0;")
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"[RESET_DB_WIPE_ERROR] {e}")
-
-    # 2. Reset Arbitrage Metrics & Routes
-    try:
+        from backend.arbitrage.arbitrage_ledger import arbitrage_ledger
         from backend.arbitrage.arbitrage_metrics import ArbitrageMetricsTracker
+        from backend.wallet.sub_wallet_manager import sub_wallet_manager
+
+        arbitrage_ledger.clear()
         ArbitrageMetricsTracker.reset()
+        sub_wallet_manager.get_summary()
+        return {"status": "success", "message": "Arbitrage test execution data wiped and ledger reset to pristine $0.00 state."}
     except Exception as e:
-        logger.error(f"[RESET_ARBITRAGE_ERROR] {e}")
-
-    # 3. Reset Shadow Trading Simulation
+        logger.error(f"[RESET_ARBITRAGE_API_ERROR] {e}")
+@app.get("/api/system/db-health")
+async def get_system_db_health():
+    """Diagnostic health endpoint reporting SQLite WAL mode, queue sizes, locks, and writes."""
     try:
-        from backend.shadow_trading.shadow_engine import shadow_engine
-        shadow_engine.position_tracker.clear_all()
-        shadow_engine.router.executed_fills.clear()
-    except Exception as e:
-        logger.error(f"[RESET_SHADOW_ERROR] {e}")
+        from backend.database.db_config import get_database_diagnostics
+        from backend.arbitrage.arbitrage_evidence_store import ArbitrageEvidenceStore
+        from backend.shadow_trading.shadow_autonomous_learner import shadow_autonomous_learner
 
-    return res
+        diag = get_database_diagnostics()
+        ev_store = ArbitrageEvidenceStore()
+        
+        diag["evidence_store"] = {
+            "events_generated": ev_store.events_generated,
+            "events_enqueued": ev_store.events_enqueued,
+            "events_persisted": ev_store.events_persisted,
+            "events_retried": ev_store.events_retried,
+            "events_failed": ev_store.events_failed,
+            "events_dropped": ev_store.events_dropped,
+            "lock_errors_count": ev_store.lock_errors_count,
+            "in_memory_queue_size": ev_store._write_queue.qsize() if hasattr(ev_store, "_write_queue") else 0,
+            "last_successful_write": ev_store.last_successful_write_utc
+        }
+        diag["shadow_learner"] = {
+            "experiments_queued": shadow_autonomous_learner.experiments_queued,
+            "experiments_persisted": shadow_autonomous_learner.experiments_persisted,
+            "experiments_failed": shadow_autonomous_learner.experiments_failed,
+            "in_memory_queue_size": shadow_autonomous_learner._persistence_queue.qsize() if hasattr(shadow_autonomous_learner, "_persistence_queue") else 0
+        }
+        return {"status": "success", "data": diag}
+    except Exception as ex:
+        logger.error(f"[DB_HEALTH_ERROR] {ex}")
+        raise HTTPException(status_code=500, detail=str(ex))
 
 @app.get("/api/portfolio/profit-attribution")
 async def get_profit_attribution(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch complete profit attribution breakdown: Spot AI Paper Trading vs Arbitrage vs Shadow."""
     user_id = current_user.id if current_user else 1
     user_trader = await trader_manager.get_trader_for_user(user_id)
-    current_prices = {}
-    for sym in settings.SUPPORTED_SYMBOLS:
-        current_prices[sym] = market_engine.price_cache.get(sym, market_engine.fetch_current_price(sym))
+    current_prices = get_current_prices_dict()
 
     pf = user_trader.get_portfolio_summary(current_prices)
 
@@ -667,8 +721,10 @@ async def get_profit_attribution(current_user: Optional[UserModel] = Depends(get
 
     # Add / Aggregate closed trades history
     for t in getattr(user_trader, "trade_history", []):
+        if t.get("status") == "OPEN" and not t.get("exit_time"):
+            continue  # Already represented from active positions
         sym = t.get("symbol", "UNKNOWN")
-        r_pnl = round(t.get("net_pnl", t.get("pnl", 0.0)), 2)
+        r_pnl = round(float(t.get("pnl_usd", t.get("net_pnl", t.get("pnl", 0.0))) or 0.0), 2)
         if sym not in symbol_breakdown:
             symbol_breakdown[sym] = {
                 "trades": 0,
@@ -678,17 +734,17 @@ async def get_profit_attribution(current_user: Optional[UserModel] = Depends(get
                 "wins": 0,
                 "losses": 0,
                 "status": "CLOSED",
-                "entry_price": t.get("entry_price", 0.0),
-                "mark_price": t.get("exit_price", 0.0),
+                "entry_price": round(float(t.get("entry_price", 0.0)), 4),
+                "mark_price": round(float(t.get("exit_price", t.get("entry_price", 0.0))), 4),
                 "side": t.get("side", "BUY"),
-                "margin_usd": t.get("margin_usd", 0.0)
+                "margin_usd": round(float(t.get("margin_usd", 0.0)), 2)
             }
         symbol_breakdown[sym]["trades"] += 1
         symbol_breakdown[sym]["realized_pnl"] = round(symbol_breakdown[sym]["realized_pnl"] + r_pnl, 2)
-        symbol_breakdown[sym]["pnl"] = round(symbol_breakdown[sym]["realized_pnl"] + symbol_breakdown[sym]["unrealized_pnl"], 2)
+        symbol_breakdown[sym]["pnl"] = round(symbol_breakdown[sym]["realized_pnl"] + symbol_breakdown[sym].get("unrealized_pnl", 0.0), 2)
         if r_pnl > 0:
             symbol_breakdown[sym]["wins"] += 1
-        else:
+        elif r_pnl < 0:
             symbol_breakdown[sym]["losses"] += 1
 
     # 2. Arbitrage Metrics & Route-by-Route Breakdown
@@ -721,6 +777,11 @@ async def get_profit_attribution(current_user: Optional[UserModel] = Depends(get
             "status": "SIMULATED_ACTIVE"
         })
 
+    # 4. Multi-Wallet Sub-Account Ledger Summary
+    from backend.wallet.sub_wallet_manager import sub_wallet_manager
+    wallets_summary = sub_wallet_manager.get_wallets_summary()
+    total_ledger_equity = wallets_summary.get("total_system_equity_usd", pf.get("total_portfolio_value", 10000.0))
+
     total_combined_profit = round(spot_total_pnl + arb_captured_profit + shadow_net_pnl, 2)
     denom = max(1.0, abs(spot_total_pnl) + abs(arb_captured_profit) + abs(shadow_net_pnl))
 
@@ -729,7 +790,9 @@ async def get_profit_attribution(current_user: Optional[UserModel] = Depends(get
         "total_profit_usd": total_combined_profit,
         "daily_pnl_usd": pf.get("daily_pnl_usd", spot_total_pnl),
         "daily_pnl_pct": pf.get("daily_pnl_pct", 0.0),
-        "total_portfolio_value": pf.get("total_portfolio_value", 0.0),
+        "total_portfolio_value": total_ledger_equity,
+        "spot_portfolio_value": pf.get("total_portfolio_value", 10000.0),
+        "wallets_summary": wallets_summary,
         "attribution": {
             "spot": {
                 "name": "Spot AI Paper Trading",
@@ -767,41 +830,40 @@ async def get_profit_attribution(current_user: Optional[UserModel] = Depends(get
 @app.get("/api/portfolio/all-trades")
 async def get_all_unified_trades(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch unified trade history across Spot AI Trading, Arbitrage Routes, and Shadow Simulation."""
-    user_id = current_user.id if current_user else 1
-    user_trader = await trader_manager.get_trader_for_user(user_id)
-    current_prices = {}
-    for sym in settings.SUPPORTED_SYMBOLS:
-        current_prices[sym] = market_engine.price_cache.get(sym, market_engine.fetch_current_price(sym))
+    user_trader = None
+    if current_user:
+        user_trader = await trader_manager.get_trader_for_user(current_user.id)
+    
+    if not user_trader or len(getattr(user_trader, "trade_history", [])) == 0:
+        # Check active registered user traders for trade history
+        for uid, tr in list(trader_manager.traders.items()):
+            if len(getattr(tr, "trade_history", [])) > 0:
+                user_trader = tr
+                break
+        if not user_trader or len(getattr(user_trader, "trade_history", [])) == 0:
+            user_trader = trader
 
-    pf = user_trader.get_portfolio_summary(current_prices)
     all_trades = []
 
     # 1. Spot Open Positions
-    active_positions_raw = pf.get("active_positions", [])
-    if isinstance(active_positions_raw, dict):
-        active_positions_list = list(active_positions_raw.values())
-    elif isinstance(active_positions_raw, list):
-        active_positions_list = active_positions_raw
-    else:
-        active_positions_list = []
-
-    for pos in active_positions_list:
-        all_trades.append({
-            "id": pos.get("id", f"SPOT_OPEN_{pos.get('symbol')}"),
-            "subsystem": "SPOT",
-            "symbol": pos.get("symbol", "UNKNOWN"),
-            "side": pos.get("side", "BUY"),
-            "entry_price": pos.get("entry_price", 0.0),
-            "exit_price": pos.get("current_price", pos.get("mark_price", 0.0)),
-            "amount": pos.get("amount", 0.0),
-            "margin_usd": pos.get("margin_usd", 0.0),
-            "pnl_usd": round(pos.get("unrealized_pnl_usd", 0.0), 2),
-            "pnl_pct": round(pos.get("unrealized_pnl_pct", 0.0), 2),
-            "status": "OPEN",
-            "reason": pos.get("strategy", "AI Hybrid (Active Position)"),
-            "venue": pos.get("exchange", "BINANCE"),
-            "time": pos.get("entry_time", "")
-        })
+    for sym, pos in getattr(user_trader, "positions", {}).items():
+        if isinstance(pos, dict):
+            all_trades.append({
+                "id": pos.get("id", f"SPOT_OPEN_{pos.get('symbol', sym)}"),
+                "subsystem": "SPOT",
+                "symbol": pos.get("symbol", sym),
+                "side": pos.get("side", "BUY"),
+                "entry_price": pos.get("entry_price", 0.0),
+                "exit_price": pos.get("current_price", pos.get("mark_price", pos.get("entry_price", 0.0))),
+                "amount": pos.get("amount", 0.0),
+                "margin_usd": pos.get("margin_usd", 0.0),
+                "pnl_usd": round(pos.get("unrealized_pnl_usd", 0.0), 2),
+                "pnl_pct": round(pos.get("unrealized_pnl_pct", 0.0), 2),
+                "status": "OPEN",
+                "reason": pos.get("strategy", "AI Hybrid (Active Position)"),
+                "venue": pos.get("exchange", "BINANCE"),
+                "time": pos.get("entry_time", "")
+            })
 
     # 2. Spot Closed Trades
     for t in getattr(user_trader, "trade_history", []):
@@ -814,7 +876,7 @@ async def get_all_unified_trades(current_user: Optional[UserModel] = Depends(get
             "exit_price": t.get("exit_price", 0.0),
             "amount": t.get("amount", 0.0),
             "margin_usd": t.get("margin_usd", 0.0),
-            "pnl_usd": round(t.get("net_pnl", t.get("pnl", 0.0)), 2),
+            "pnl_usd": round(float(t.get("pnl_usd", t.get("net_pnl", t.get("pnl", 0.0))) or 0.0), 2),
             "pnl_pct": round(t.get("pnl_pct", 0.0), 2),
             "status": "CLOSED",
             "reason": t.get("close_reason", t.get("reason", "Take Profit / Stop Loss")),
@@ -871,11 +933,10 @@ async def get_all_unified_trades(current_user: Optional[UserModel] = Depends(get
 
 
 @app.get("/api/accounting/audit")
-async def get_accounting_audit(current_user: UserModel = Depends(get_current_user)):
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    current_prices = {}
-    for sym in settings.SUPPORTED_SYMBOLS:
-        current_prices[sym] = market_engine.price_cache.get(sym, market_engine.fetch_current_price(sym))
+async def get_accounting_audit(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
+    current_prices = get_current_prices_dict()
 
     pf = user_trader.get_portfolio_summary(current_prices)
     audit_res = user_trader.validate_accounting(
@@ -915,49 +976,95 @@ class WalletFundsRequest(BaseModel):
     amount: float
 
 @app.post("/api/wallet/deposit")
-async def deposit_virtual_funds(body: WalletFundsRequest, current_user: UserModel = Depends(get_current_user)):
+@app.post("/api/user/deposit")
+@app.post("/api/portfolio/deposit")
+@app.post("/wallet/deposit")
+async def deposit_virtual_funds(body: WalletFundsRequest, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Deposit virtual USDT capital into the user's paper trading wallet."""
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="Deposit amount must be greater than zero.")
 
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    tx = user_trader._execute_ledger_transaction(
-        tx_type="DEPOSIT",
-        amount=body.amount,
-        reference_id="USER_DEPOSIT",
-        description=f"Virtual Capital Deposit of ${body.amount:.2f} USDT"
-    )
-    user_trader._sync_save_portfolio()
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
+
+    # 1. Update In-Memory Balance & Ledger
+    user_trader.usdt_balance = round(user_trader.usdt_balance + body.amount, 4)
+    user_trader.initial_balance = round(user_trader.initial_balance + body.amount, 4)
+    tx_id = f"TX_{int(time.time() * 1000)}_{len(user_trader.ledger) + 1}"
+    tx = {
+        "tx_id": tx_id,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "tx_type": "DEPOSIT",
+        "amount": round(body.amount, 4),
+        "balance_after": round(user_trader.usdt_balance, 4),
+        "reference_id": "USER_DEPOSIT",
+        "description": f"Virtual Capital Deposit of ${body.amount:,.2f} USDT"
+    }
+    user_trader.ledger.append(tx)
+
+    # 2. Persist to DB directly
+    try:
+        await user_trader.repo.record_wallet_transaction(tx, user_id=user_id)
+    except Exception as ex:
+        logger.warning(f"[DEPOSIT_TX_WARN] {ex}")
+
+    try:
+        await user_trader.save_portfolio_async()
+    except Exception as ex:
+        logger.warning(f"[DEPOSIT_PORT_WARN] {ex}")
+
     return {
         "status": "success",
-        "message": f"Successfully deposited ${body.amount:.2f} USDT virtual funds.",
+        "message": f"Successfully deposited ${body.amount:,.2f} USDT virtual funds.",
         "usdt_balance": user_trader.usdt_balance,
         "transaction": tx
     }
 
 @app.post("/api/wallet/withdraw")
-async def withdraw_virtual_funds(body: WalletFundsRequest, current_user: UserModel = Depends(get_current_user)):
+@app.post("/api/user/withdraw")
+@app.post("/api/portfolio/withdraw")
+@app.post("/wallet/withdraw")
+async def withdraw_virtual_funds(body: WalletFundsRequest, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Withdraw virtual USDT capital from the user's paper trading wallet."""
     if body.amount <= 0:
         raise HTTPException(status_code=400, detail="Withdrawal amount must be greater than zero.")
 
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
     if user_trader.usdt_balance < body.amount:
         raise HTTPException(
             status_code=400,
-            detail=f"Insufficient USDT balance. Available: ${user_trader.usdt_balance:.2f} USDT, Requested: ${body.amount:.2f} USDT"
+            detail=f"Insufficient USDT balance. Available: ${user_trader.usdt_balance:,.2f} USDT, Requested: ${body.amount:,.2f} USDT"
         )
 
-    tx = user_trader._execute_ledger_transaction(
-        tx_type="WITHDRAWAL",
-        amount=-abs(body.amount),
-        reference_id="USER_WITHDRAWAL",
-        description=f"Virtual Capital Withdrawal of ${body.amount:.2f} USDT"
-    )
-    await user_trader.save_portfolio_async()
+    # 1. Update In-Memory Balance & Ledger
+    user_trader.usdt_balance = round(max(0.0, user_trader.usdt_balance - body.amount), 4)
+    tx_id = f"TX_{int(time.time() * 1000)}_{len(user_trader.ledger) + 1}"
+    tx = {
+        "tx_id": tx_id,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "tx_type": "WITHDRAWAL",
+        "amount": round(-abs(body.amount), 4),
+        "balance_after": round(user_trader.usdt_balance, 4),
+        "reference_id": "USER_WITHDRAWAL",
+        "description": f"Virtual Capital Withdrawal of ${body.amount:,.2f} USDT"
+    }
+    user_trader.ledger.append(tx)
+
+    # 2. Persist to DB directly
+    try:
+        await user_trader.repo.record_wallet_transaction(tx, user_id=user_id)
+    except Exception as ex:
+        logger.warning(f"[WITHDRAW_TX_WARN] {ex}")
+
+    try:
+        await user_trader.save_portfolio_async()
+    except Exception as ex:
+        logger.warning(f"[WITHDRAW_PORT_WARN] {ex}")
+
     return {
         "status": "success",
-        "message": f"Successfully withdrew ${body.amount:.2f} USDT virtual funds.",
+        "message": f"Successfully withdrew ${body.amount:,.2f} USDT virtual funds.",
         "usdt_balance": user_trader.usdt_balance,
         "transaction": tx
     }
@@ -966,9 +1073,10 @@ async def withdraw_virtual_funds(body: WalletFundsRequest, current_user: UserMod
 
 
 @app.post("/api/trade/order")
-async def execute_manual_order(req: OrderRequest, current_user: UserModel = Depends(get_current_user)):
+async def execute_manual_order(req: OrderRequest, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Advanced Manual Order Execution (LONG/SHORT, Leverage, SL, TP, Trailing Stop)."""
-    user_trader = await trader_manager.get_trader_for_user(current_user.id)
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
     price = market_engine.fetch_current_price(req.symbol)
     
     sl_price = req.stop_loss_price or (price * 0.975 if req.side.upper() == "LONG" else price * 1.025)
@@ -990,10 +1098,11 @@ async def execute_manual_order(req: OrderRequest, current_user: UserModel = Depe
     return res
 
 @app.post("/api/trade/position-action")
-async def manage_position(req: PositionActionRequest, current_user: UserModel = Depends(get_current_user)):
+async def manage_position(req: PositionActionRequest, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Position Actions: Close, Partial Close, Reverse, Edit SL/TP."""
     try:
-        user_trader = await trader_manager.get_trader_for_user(current_user.id)
+        user_id = current_user.id if current_user else 1
+        user_trader = await trader_manager.get_trader_for_user(user_id)
 
         # Sub-millisecond non-blocking price lookup
         price = market_engine.price_cache.get(req.symbol)
@@ -1047,9 +1156,7 @@ async def manage_position(req: PositionActionRequest, current_user: UserModel = 
 async def get_accounting_audit(current_user: UserModel = Depends(get_current_user)):
 
     user_trader = await trader_manager.get_trader_for_user(current_user.id)
-    current_prices = {}
-    for sym in settings.SUPPORTED_SYMBOLS:
-        current_prices[sym] = market_engine.price_cache.get(sym, market_engine.fetch_current_price(sym))
+    current_prices = get_current_prices_dict()
 
     pf = user_trader.get_portfolio_summary(current_prices)
     audit_res = user_trader.validate_accounting(
@@ -1198,17 +1305,29 @@ async def toggle_bot(
     enable: bool = Query(...),
     current_user: Optional[UserModel] = Depends(get_optional_current_user)
 ):
-    if current_user:
-        user_trader = await trader_manager.get_trader_for_user(current_user.id)
-        user_trader.auto_bot_enabled = enable
-        await user_trader.save_portfolio_async()
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
+    user_trader.auto_bot_enabled = enable
+    await user_trader.save_portfolio_async()
 
     trader.auto_bot_enabled = enable
     await trader.save_portfolio_async()
 
+    for tr in trader_manager.traders.values():
+        if tr.user_id == user_id:
+            tr.auto_bot_enabled = enable
+
     ws_manager.user_last_hashes.clear()
     status_str = "ACTIVE" if enable else "DISABLED"
-    logger.info(f"AUTO_BOT_TOGGLE user={current_user.id if current_user else 'demo'} enable={enable}")
+    logger.info(f"AUTO_BOT_TOGGLE user={user_id} enable={enable}")
+
+    try:
+        curr_prices = get_current_prices_dict()
+        market_summary = market_engine.get_market_health_summary()
+        await ws_manager.broadcast_user_snapshots(trader_manager, curr_prices, scanner_cache, market_summary)
+    except Exception as ws_err:
+        logger.warning(f"[WS_TOGGLE_BROADCAST_WARN] {ws_err}")
+
     return {"status": "success", "message": f"Auto-Trading Bot is now {status_str}", "auto_bot_enabled": enable, "success": True, "enabled": enable}
 
 
@@ -1434,24 +1553,34 @@ def background_scanner_loop():
     last_sentiment_update = 0.0
     sentiment_cache = {}
 
+    last_ta_update = 0.0
+    ta_cache = {}
+
     while True:
         try:
+            now = time.time()
             # Refresh news sentiment every 10 minutes
-            if time.time() - last_sentiment_update > 600.0 or not sentiment_cache:
+            if now - last_sentiment_update > 600.0 or not sentiment_cache:
                 fg_cache = sentiment_engine.fetch_fear_and_greed_index()
                 news_cache = sentiment_engine.fetch_crypto_news()
                 sentiment_cache = sentiment_engine.compute_aggregated_sentiment(news_cache, fg_cache)
-                last_sentiment_update = time.time()
-            current_prices = {}
+                last_sentiment_update = now
+
+            refresh_ta = (now - last_ta_update > 10.0) or not ta_cache
+            if refresh_ta:
+                last_ta_update = now
+
+            current_prices = market_engine.fetch_all_prices()
             scanner_results = []
 
             for symbol in settings.SUPPORTED_SYMBOLS:
-                price = market_engine.fetch_current_price(symbol)
-                current_prices[symbol] = price
+                price = current_prices.get(symbol, 1.0)
 
-                df = market_engine.fetch_ohlcv(symbol, limit=40)
-
-                ta = market_engine.calculate_technical_indicators(df)
+                if refresh_ta or symbol not in ta_cache:
+                    df = market_engine.fetch_ohlcv(symbol, limit=30)
+                    ta_cache[symbol] = market_engine.calculate_technical_indicators(df)
+                
+                ta = ta_cache.get(symbol, {})
 
                 signal = ai_strategy.evaluate_trading_signal(
                     symbol=symbol,
@@ -1463,7 +1592,6 @@ def background_scanner_loop():
                 )
 
                 scanner_results.append(signal)
-                logger.info(f"[LIVE_AI_SIGNALS] Symbol={symbol} | Action={signal['action']} | Direction={signal['direction']} | Confidence={signal['confidence_score']}% | Price=${price:.2f}")
 
             # Sort scanner results
             top_buys = sorted([s for s in scanner_results if "BUY" in s['action']], key=lambda x: x['confidence_score'], reverse=True)
@@ -1471,7 +1599,7 @@ def background_scanner_loop():
 
             global scanner_cache
             scanner_cache = {
-                "timestamp": time.time(),
+                "timestamp": now,
                 "top_buys": top_buys,
                 "top_sells": top_sells,
                 "all_pairs": scanner_results
@@ -1482,22 +1610,19 @@ def background_scanner_loop():
             if not active_traders:
                 active_traders = [trader]
 
-            cycle_ts = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
-            logger.info(f"--- [LIVE_SCAN_CYCLE] Timestamp={cycle_ts} | ActiveEngines={len(active_traders)} | TopBuys={len(top_buys)} | TopSells={len(top_sells)} ---")
-
             for user_tr in active_traders:
                 user_tr.check_stop_loss_take_profit(current_prices)
 
-                logger.info(f"[LIVE_CYCLE_STATE] Timestamp={cycle_ts} | UserID={user_tr.user_id} | AutoBotEnabled={user_tr.auto_bot_enabled} | Balance=${user_tr.usdt_balance:.2f} | OpenPositions={len(user_tr.positions)} ({list(user_tr.positions.keys())})")
-
                 # Check Condition 1: Auto Bot Enabled
                 if not user_tr.auto_bot_enabled:
-                    logger.info(f"[LIVE_BOT_DECISION] [SKIPPED] UserID={user_tr.user_id} | Reason: Auto-Trading Bot is DISABLED.")
                     continue
 
                 # Check Condition 2: Minimum Balance Requirement
                 if user_tr.usdt_balance < 100.0:
-                    logger.info(f"[LIVE_BOT_DECISION] [SKIPPED] UserID={user_tr.user_id} | Balance=${user_tr.usdt_balance:.2f} | Reason: Balance below $100.0 minimum requirement.")
+                    continue
+
+                # Directional Spot Trading Bot Gate (Active when user enables auto bot)
+                if not user_tr.auto_bot_enabled:
                     continue
 
                 # Combine & rank candidate opportunities by confidence score (descending)
@@ -1514,29 +1639,60 @@ def background_scanner_loop():
                     seen_symbols.add(cand_sym)
 
                     # Check Condition 3: Dynamic Confidence Threshold based on Risk Mode
-                    min_conf_threshold = 55.0 if user_tr.risk_mode == "Aggressive" else (65.0 if user_tr.risk_mode == "Conservative" else 58.0)
+                    min_conf_threshold = 50.0 if user_tr.risk_mode == "Aggressive" else (60.0 if user_tr.risk_mode == "Conservative" else 52.0)
                     if cand_conf < min_conf_threshold:
-
-                        logger.info(f"[CANDIDATE #{idx}] Symbol={cand_sym} | Confidence={cand_conf}% | Decision=SKIPPED | Reason=Below {min_conf_threshold}% Threshold for {user_tr.risk_mode} Risk Mode")
                         continue
-
 
                     # Check Condition 4: Existing Position Check
                     if cand_sym in user_tr.positions:
-                        logger.info(f"[CANDIDATE #{idx}] Symbol={cand_sym} | Confidence={cand_conf}% | Decision=SKIPPED | Reason=Already Open")
+                        existing_pos = user_tr.positions[cand_sym]
+                        # If existing position is in opposite direction and new signal has high confidence (>=65%), auto-reverse
+                        if existing_pos.get('side') != cand_dir and cand_conf >= 65.0:
+                            logger.info(f"[CANDIDATE #{idx}] Symbol={cand_sym} | Strong Opposite Signal ({cand_dir} vs {existing_pos.get('side')}) with {cand_conf}% Confidence | Reversing Position...")
+                            user_tr.reverse_position(cand_sym, current_prices[cand_sym])
+                            continue
                         continue
 
                     # Check Condition 5: Direction Validation
                     if cand_dir not in ["LONG", "SHORT"]:
-                        logger.info(f"[CANDIDATE #{idx}] Symbol={cand_sym} | Confidence={cand_conf}% | Decision=SKIPPED | Reason=Invalid Direction")
                         continue
 
-                    logger.info(f"[CANDIDATE #{idx}] Symbol={cand_sym} | Direction={cand_dir} | Confidence={cand_conf}% | Decision=PASSED")
-
+                    # Check Condition 6: AI Learned Lessons Veto Gate (Active Self-Learning Protection)
                     alloc = getattr(user_tr, 'default_allocation_usd', 1000.0)
-                    lev = getattr(user_tr, 'default_leverage', 1)
-                    logger.info(f"[RISK_MANAGER] UserID={user_tr.user_id} | Symbol={cand_sym} | Side={cand_dir} | Alloc=${alloc:.2f} | Leverage={lev}x | Price=${current_prices[cand_sym]:.2f} | Decision=PASSED")
+                    try:
+                        from backend.learning.lesson_application_engine import lesson_applier
+                        regime_name = "TRENDING_UP" if cand_dir == "LONG" else "TRENDING_DOWN"
+                        features = {
+                            "rsi": cand.get("rsi", 50.0),
+                            "confidence": cand_conf,
+                            "volatility": 0.02,
+                            "current_price": current_prices[cand_sym]
+                        }
+                        
+                        lesson_res = lesson_applier.evaluate_candidate_against_lessons(
+                            symbol=cand_sym,
+                            direction=cand_dir,
+                            market_regime=regime_name,
+                            features=features
+                        )
+                        
+                        if lesson_res.action == "VETO_TRADE":
+                            logger.warning(
+                                f"[AI_LEARNING_SHIELD] UserID={user_tr.user_id} | Symbol={cand_sym} {cand_dir} "
+                                f"VETOED BY LEARNED LESSON {lesson_res.matching_lesson_id} ('{lesson_res.matching_lesson_title}') | "
+                                f"Reason: {lesson_res.reason}"
+                            )
+                            continue
+                        elif lesson_res.action == "REDUCE_SIZE_50":
+                            alloc = alloc * 0.5
+                            logger.info(
+                                f"[AI_LEARNING_SHIELD] UserID={user_tr.user_id} | Symbol={cand_sym} {cand_dir} "
+                                f"ALLOCATION REDUCED 50% (${alloc:.2f}) by Lesson {lesson_res.matching_lesson_id}"
+                            )
+                    except Exception as l_err:
+                        logger.debug(f"[AI_LEARNING_GATE_DEBUG] {l_err}")
 
+                    lev = getattr(user_tr, 'default_leverage', 1)
                     try:
                         res = user_tr.open_position(
                             symbol=cand_sym,
@@ -1552,32 +1708,41 @@ def background_scanner_loop():
                         if res.get("status") == "success":
                             logger.info(f"[POSITION] UserID={user_tr.user_id} | Symbol={cand_sym} | OPENED SUCCESSFULLY: {res}")
                             if len(user_tr.positions) >= user_tr.max_open_positions:
-                                logger.info(f"[POSITION_CAP_REACHED] UserID={user_tr.user_id} reached max open positions limit ({user_tr.max_open_positions}).")
                                 break
-                        else:
-
-                            logger.info(f"[POSITION] UserID={user_tr.user_id} | Symbol={cand_sym} | REJECTED BY RISK MANAGER: {res.get('message')}")
-                            continue
                     except Exception as ex:
                         logger.error(f"[POSITION_EXCEPTION] UserID={user_tr.user_id} | Symbol={cand_sym} raised Exception: {ex}", exc_info=True)
                         continue
 
             # Broadcast user-isolated real-time snapshots (0 cross-user data leakage)
             market_summary = market_engine.get_market_health_summary()
-            loop.run_until_complete(
-                ws_manager.broadcast_user_snapshots(
-                    trader_mgr=trader_manager,
-                    current_prices=current_prices,
-                    scanner_cache=scanner_cache,
-                    market_summary=market_summary
-                )
-            )
-
+            try:
+                main_l = getattr(trader, "_main_event_loop", None)
+                if main_l and main_l.is_running():
+                    asyncio.run_coroutine_threadsafe(
+                        ws_manager.broadcast_user_snapshots(
+                            trader_mgr=trader_manager,
+                            current_prices=current_prices,
+                            scanner_cache=scanner_cache,
+                            market_summary=market_summary
+                        ),
+                        main_l
+                    )
+                else:
+                    loop.run_until_complete(
+                        ws_manager.broadcast_user_snapshots(
+                            trader_mgr=trader_manager,
+                            current_prices=current_prices,
+                            scanner_cache=scanner_cache,
+                            market_summary=market_summary
+                        )
+                    )
+            except Exception as ws_b_err:
+                logger.debug(f"[WS_BROADCAST_DEBUG] {ws_b_err}")
 
         except Exception as e:
             logger.error(f"Error in multi-symbol scanner loop: {e}")
 
-        time.sleep(1.0)
+        time.sleep(0.5)
 
 
 def background_learning_scheduler_loop():

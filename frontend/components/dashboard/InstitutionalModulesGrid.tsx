@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { ShieldAlert, Crosshair, Cpu, ArrowLeftRight, Newspaper, ArrowRight, Zap } from "lucide-react";
+import { ShieldAlert, Crosshair, Cpu, ArrowLeftRight, Newspaper, ArrowRight, Zap, Sparkles, Flame } from "lucide-react";
 
 export interface InstitutionalModule {
   id: string;
@@ -17,6 +17,17 @@ export interface InstitutionalModule {
 }
 
 const INSTITUTIONAL_MODULES: InstitutionalModule[] = [
+  {
+    id: "spot-research",
+    title: "Spot & Meme Coin Research",
+    route: "/scanner",
+    status: "LIVE",
+    statusColor: "bg-cyan-500/20 text-cyan-300 border-cyan-500/40",
+    description: "Autonomous new coin & meme token discovery across Binance & DEX streams with 8-vector risk scoring and paper validation.",
+    icon: Sparkles,
+    accentColor: "text-cyan-400",
+    gradient: "from-cyan-500/10 via-slate-900 to-slate-900 hover:border-cyan-500/50"
+  },
   {
     id: "risk",
     title: "Portfolio Risk Intelligence",

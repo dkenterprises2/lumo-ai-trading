@@ -17,13 +17,14 @@ from backend.core.logger import logger
 
 
 DEFAULT_STRATEGY_WEIGHTS = {
-    "ema_weight": 0.25,
-    "rsi_weight": 0.15,
-    "macd_weight": 0.25,
-    "adx_weight": 0.10,
-    "vwap_weight": 0.10,
-    "obv_weight": 0.08,
-    "sentiment_weight": 0.07
+    "ema_trend": 0.20,
+    "macd_momentum": 0.20,
+    "rsi_oscillator": 0.15,
+    "adx_trend_strength": 0.15,
+    "vwap_position": 0.10,
+    "obv_flow": 0.10,
+    "volume_spike": 0.05,
+    "atr_volatility": 0.05
 }
 
 

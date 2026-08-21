@@ -5,12 +5,12 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { useTradingStream } from "@/hooks/useTradingStream";
-import { useQuery } from "@tanstack/react-query";
-import { fetchPortfolio, fetchNewsSentiment, toggleBot, setStrategy, depositVirtualFunds, withdrawVirtualFunds, saveExecutionParameters, apiFetch } from "@/services/api";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchPortfolio, fetchNewsSentiment, toggleBot, setStrategy, depositVirtualFunds, withdrawVirtualFunds, saveExecutionParameters, resetPaperAccount, apiFetch } from "@/services/api";
 import { useCurrency, SUPPORTED_CURRENCIES } from "@/context/CurrencyContext";
 
 import { useTheme, COLOR_THEMES, ColorThemeId } from "@/context/ThemeContext";
-import { Wallet, PlusCircle, MinusCircle, CheckCircle2, AlertCircle, RefreshCw, Palette, Check, Globe, Coins, ArrowRightLeft } from "lucide-react";
+import { Wallet, PlusCircle, MinusCircle, CheckCircle2, AlertCircle, RefreshCw, Palette, Check, Globe, Coins, ArrowRightLeft, RotateCcw, ShieldAlert } from "lucide-react";
 
 const TIMEZONES = [
   { value: "Asia/Kolkata", label: "Asia/Kolkata - IST (India Standard Time +05:30)" },
@@ -42,13 +42,14 @@ const TIMEZONES = [
 export default function SettingsPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const stream = useTradingStream();
+  const queryClient = useQueryClient();
   const { theme, setTheme } = useTheme();
   const { currency, setCurrency, formatCurrency, currentCurrency } = useCurrency();
 
   const portfolioQuery = useQuery({ queryKey: ["portfolio"], queryFn: fetchPortfolio, refetchInterval: 5000 });
   const newsQuery = useQuery({ queryKey: ["news-sentiment"], queryFn: fetchNewsSentiment, refetchInterval: 300000 });
 
-  const currentPortfolio = stream.isConnected && stream.portfolio ? stream.portfolio : portfolioQuery.data ?? null;
+  const currentPortfolio = stream.portfolio ?? portfolioQuery.data ?? null;
 
   // Deposit & Withdrawal State
   const [depositAmount, setDepositAmount] = useState<string>("5000");
@@ -84,6 +85,11 @@ export default function SettingsPage() {
     return 'Asia/Kolkata';
   });
   const [timezoneFeedback, setTimezoneFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Paper Account Reset State
+  const [isResetting, setIsResetting] = useState(false);
+  const [showResetModal, setShowResetModal] = useState(false);
+  const [resetFeedback, setResetFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     if (currency) {
@@ -163,9 +169,11 @@ export default function SettingsPage() {
       return;
     }
     setIsDepositing(true);
+    setFeedback(null);
     try {
       const res = await depositVirtualFunds(val);
       setFeedback({ type: "success", message: res.message || `Successfully deposited $${val.toLocaleString()} USDT into paper wallet!` });
+      await queryClient.invalidateQueries({ queryKey: ["portfolio"] });
       portfolioQuery.refetch();
     } catch (err: any) {
       setFeedback({ type: "error", message: err.message || "Failed to process virtual deposit." });
@@ -182,9 +190,11 @@ export default function SettingsPage() {
       return;
     }
     setIsWithdrawing(true);
+    setFeedback(null);
     try {
       const res = await withdrawVirtualFunds(val);
       setFeedback({ type: "success", message: res.message || `Successfully withdrawn $${val.toLocaleString()} USDT from paper wallet!` });
+      await queryClient.invalidateQueries({ queryKey: ["portfolio"] });
       portfolioQuery.refetch();
     } catch (err: any) {
       setFeedback({ type: "error", message: err.message || "Failed to process virtual withdrawal." });
@@ -211,6 +221,36 @@ export default function SettingsPage() {
         type: 'success',
         message: `Timezone saved locally to ${selectedTimezone}!`
       });
+    }
+  };
+
+  const handleResetPaperAccount = async () => {
+    try {
+      setIsResetting(true);
+      setResetFeedback(null);
+      const res = await resetPaperAccount();
+      setResetFeedback({
+        type: 'success',
+        message: res.message || 'Full Platform Account successfully reset to $10,000 USDT.'
+      });
+      setShowResetModal(false);
+      
+      // Clear cached local items
+      try {
+        localStorage.removeItem('lumo_portfolio_cache');
+        localStorage.removeItem('lumo_shadow_cache');
+      } catch (e) {}
+
+      // Invalidate all active UI queries
+      await queryClient.invalidateQueries();
+      portfolioQuery.refetch();
+    } catch (err: any) {
+      setResetFeedback({
+        type: 'error',
+        message: err.message || 'Failed to reset paper trading account.'
+      });
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -575,10 +615,78 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          {/* Reset Paper Trading Account Card */}
+          <div className="p-6 rounded-2xl bg-slate-900/60 border border-rose-900/30 space-y-5 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-md font-semibold text-slate-200">Reset Paper Trading Account</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">Wipe all simulated open positions, orders, trade history, and restore initial $10,000 USDT balance</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowResetModal(true)}
+                className="px-4 py-2 bg-rose-600/20 hover:bg-rose-600/30 border border-rose-500/40 text-rose-300 font-bold rounded-xl text-xs uppercase tracking-wider transition shadow-lg shadow-rose-500/10 flex items-center gap-1.5 cursor-pointer"
+              >
+                <RotateCcw className="w-4 h-4" />
+                <span>Reset Account</span>
+              </button>
+            </div>
+
+            {resetFeedback && (
+              <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 border ${resetFeedback.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-rose-500/10 border-rose-500/20 text-rose-400'}`}>
+                {resetFeedback.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                <span>{resetFeedback.message}</span>
+              </div>
+            )}
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Resetting will clear all stale or active simulated positions across Spot, Arbitrage, and Shadow trading engines. Your balance will be cleanly reset to $10,000.00 USDT.
+            </p>
+          </div>
+
         </main>
 
         <Footer dbSyncStatus={currentPortfolio?.database_sync_status} lastValidationTime={currentPortfolio?.last_validation_time} connectionState={stream.connectionState} />
       </div>
+
+      {/* Confirmation Modal */}
+      {showResetModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-4">
+          <div className="max-w-md w-full rounded-2xl bg-slate-900 border border-slate-800 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <ShieldAlert className="w-6 h-6 shrink-0" />
+              <h3 className="text-base font-bold text-slate-100">Confirm Paper Account Reset</h3>
+            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Are you sure you want to reset your paper trading account? This will permanently delete all current open positions, active orders, and historical trade logs, and reset your wallet balance to <strong className="text-cyan-300">$10,000.00 USDT</strong>.
+            </p>
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowResetModal(false)}
+                disabled={isResetting}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleResetPaperAccount}
+                disabled={isResetting}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white shadow-lg shadow-rose-600/30 transition flex items-center gap-2 disabled:opacity-50"
+              >
+                {isResetting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                <span>{isResetting ? "Resetting..." : "Yes, Reset Everything"}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -20,12 +20,17 @@ export class ApiError extends Error {
 function getApiCandidateBases(): string[] {
   const candidates: string[] = [];
 
-  // 1. Explicit API Base URL if configured
+  // 1. In browser, use same-origin relative URL first for instant Next.js proxy rewrite without cross-origin preflight delays
+  if (typeof window !== "undefined") {
+    candidates.push("");
+  }
+
+  // 2. Explicit API Base URL if configured
   if (API_BASE && !API_BASE.includes("example.com")) {
     candidates.push(API_BASE);
   }
 
-  // 2. Direct FastAPI backend servers
+  // 3. Direct FastAPI backend servers
   candidates.push("http://127.0.0.1:8000");
   candidates.push("http://localhost:8000");
 
@@ -37,9 +42,7 @@ function getApiCandidateBases(): string[] {
     }
   }
 
-  // 3. Relative path for Next.js rewrite proxies
   candidates.push("");
-
   return Array.from(new Set(candidates));
 }
 
@@ -140,6 +143,8 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
         const obj = body as Record<string, any>;
         if (typeof obj.detail === "string") {
           detail = obj.detail;
+        } else if (typeof obj.detail === "object" && obj.detail !== null && typeof obj.detail.message === "string") {
+          detail = obj.detail.message;
         } else if (Array.isArray(obj.detail)) {
           detail = obj.detail.map((item: any) => item.msg || JSON.stringify(item)).join(", ");
         } else if (typeof obj.message === "string") {
@@ -299,5 +304,181 @@ export async function fetchAllUnifiedTrades(): Promise<{ status: string; total_c
   return requestJson<{ status: string; total_count: number; trades: any[] }>("/api/portfolio/all-trades");
 }
 
+export async function fetchShadowCandles(
+  symbol: string = "BTC/USDT",
+  timeframe: string = "1d",
+  startDate?: string,
+  endDate?: string
+): Promise<{ status: string; symbol: string; timeframe: string; count: number; candles: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> }> {
+  let url = `/api/shadow/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`;
+  if (startDate) url += `&start_date=${encodeURIComponent(startDate)}`;
+  if (endDate) url += `&end_date=${encodeURIComponent(endDate)}`;
+  return requestJson(url);
+}
+
+export async function startShadowReplay(
+  symbol: string = "BTC/USDT",
+  timeframe: string = "1d",
+  startDate?: string,
+  endDate?: string,
+  playbackSpeed: number = 5
+): Promise<any> {
+  return requestJson<any>("/api/shadow/replay/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      symbol,
+      timeframe,
+      start_date: startDate,
+      end_date: endDate,
+      playback_speed: playbackSpeed
+    })
+  });
+}
+
+export async function pauseShadowReplay(sessionId?: string): Promise<any> {
+  const url = sessionId ? `/api/shadow/replay/pause?session_id=${encodeURIComponent(sessionId)}` : "/api/shadow/replay/pause";
+  return requestJson<any>(url, { method: "POST" });
+}
+
+export async function resumeShadowReplay(sessionId?: string): Promise<any> {
+  const url = sessionId ? `/api/shadow/replay/resume?session_id=${encodeURIComponent(sessionId)}` : "/api/shadow/replay/resume";
+  return requestJson<any>(url, { method: "POST" });
+}
+
+export async function stepShadowReplay(steps: number = 1, sessionId?: string): Promise<any> {
+  return requestJson<any>("/api/shadow/replay/step", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ steps, session_id: sessionId })
+  });
+}
+
+export async function seekShadowReplay(targetPct: number, sessionId?: string): Promise<any> {
+  return requestJson<any>("/api/shadow/replay/seek", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target_pct: targetPct, session_id: sessionId })
+  });
+}
+
+export async function stopShadowReplay(sessionId?: string): Promise<any> {
+  const url = sessionId ? `/api/shadow/replay/stop?session_id=${encodeURIComponent(sessionId)}` : "/api/shadow/replay/stop";
+  return requestJson<any>(url, { method: "POST" });
+}
+
+export async function setShadowReplaySpeed(speed: number, sessionId?: string): Promise<any> {
+  return requestJson<any>("/api/shadow/replay/speed", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ playback_speed: speed, speed, session_id: sessionId })
+  });
+}
+
+export async function getLearnedLessons(): Promise<any> {
+  return requestJson<any>("/api/learning/lessons");
+}
+
+export async function updateLessonStatus(lessonId: string, newStatus: string): Promise<any> {
+  return requestJson<any>(`/api/learning/lessons/${encodeURIComponent(lessonId)}/state`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ new_status: newStatus })
+  });
+}
+
+export async function getTradeExperiences(symbol?: string, limit: number = 20): Promise<any> {
+  const q = symbol ? `?symbol=${encodeURIComponent(symbol)}&limit=${limit}` : `?limit=${limit}`;
+  return requestJson<any>(`/api/learning/experiences${q}`);
+}
 
 
+// --- SPOT RESEARCH & NEW/MEME COIN DISCOVERY API ---
+export async function fetchDiscoveredCoins(category?: string, forceRefresh: boolean = false) {
+  const params = new URLSearchParams();
+  if (category) params.append("category", category);
+  if (forceRefresh) params.append("force_refresh", "true");
+  const res = await fetch(`/api/spot/discovered-coins?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch discovered coins");
+  return res.json();
+}
+
+export async function fetchCoinResearch(symbol: string) {
+  const res = await fetch(`/api/spot/coin/${encodeURIComponent(symbol)}/research`);
+  if (!res.ok) throw new Error(`Failed to fetch research for ${symbol}`);
+  return res.json();
+}
+
+export async function executePaperValidationTest(symbol: string, allocationUsd: number = 250) {
+  const res = await fetch(`/api/spot/coin/${encodeURIComponent(symbol)}/paper-test?allocation_usd=${allocationUsd}`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to execute paper test" }));
+    throw new Error(err.detail || "Paper test rejected");
+  }
+  return res.json();
+}
+
+export async function fetchPaperValidationTests() {
+  const res = await fetch(`/api/spot/paper-tests`);
+  if (!res.ok) throw new Error("Failed to fetch paper validation tests");
+  return res.json();
+}
+
+export async function fetchResearchEvidence(limit: number = 50, category?: string) {
+  const params = new URLSearchParams();
+  params.append("limit", limit.toString());
+  if (category) params.append("category", category);
+  const res = await fetch(`/api/spot/evidence/events?${params.toString()}`);
+  if (!res.ok) throw new Error("Failed to fetch research evidence");
+  return res.json();
+}
+
+// --- AUTONOMOUS SPOT BOT & ISOLATED SUB-WALLET API ---
+export async function fetchSpotBotStatus() {
+  const res = await fetch(`/api/spot/bot/status`);
+  if (!res.ok) throw new Error("Failed to fetch spot bot status");
+  return res.json();
+}
+
+export async function updateSpotBotConfig(config: any) {
+  const res = await fetch(`/api/spot/bot/config`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) throw new Error("Failed to update spot bot config");
+  return res.json();
+}
+
+export async function toggleSpotBot(enabled?: boolean) {
+  const url = enabled !== undefined ? `/api/spot/bot/toggle?enabled=${enabled}` : `/api/spot/bot/toggle`;
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error("Failed to toggle spot bot");
+  return res.json();
+}
+
+export async function resetSpotSubWallet(initialCapitalUsd: number = 10000) {
+  const res = await fetch(`/api/spot/wallet/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initial_capital_usd: initialCapitalUsd }),
+  });
+  if (!res.ok) throw new Error("Failed to reset spot sub-wallet");
+  return res.json();
+}
+
+export async function fetchSpotBotLessons(limit: number = 20) {
+  const res = await fetch(`/api/spot/bot/lessons?limit=${limit}`);
+  if (!res.ok) throw new Error("Failed to fetch spot bot lessons");
+  return res.json();
+}
+
+export async function closeSpotBotTrade(tradeId: string) {
+  const res = await fetch(`/api/spot/bot/close-trade/${encodeURIComponent(tradeId)}`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to close spot bot trade");
+  return res.json();
+}

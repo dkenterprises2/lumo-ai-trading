@@ -1,6 +1,8 @@
 import time
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException, status
+from pydantic import BaseModel
+
 from backend.models.domain import UserModel
 from backend.routers.auth_router import get_current_user
 from backend.execution.smart_router import smart_order_router
@@ -12,32 +14,96 @@ from backend.execution.kill_switch import emergency_kill_switch
 from backend.exchange.websocket_manager import exchange_websocket_streamer
 from backend.exchange.position_sync import position_sync_engine
 from backend.exchange.balance_sync import balance_sync_engine
+from backend.exchange.credential_manager import credential_manager
+from backend.execution.execution_intent import ExecutionIntent
+from backend.execution.adapters.live_exchange_adapter import LiveExchangeAdapter
+from backend.execution import execution_orchestrator
 
 router = APIRouter(prefix="/api/exchange", tags=["Institutional Live Exchange Execution & Order Routing"])
+live_adapter = LiveExchangeAdapter()
+
+class ConnectExchangeRequest(BaseModel):
+    exchange_name: str = "binance_spot"
+    api_key: str
+    secret_key: str
+
+class ActivateLiveTradingRequest(BaseModel):
+    confirmation_token: str
 
 @router.post("/connect")
-async def connect_exchange_account(body: Dict[str, Any], current_user: UserModel = Depends(get_current_user)):
-    """Connect live exchange API credentials."""
-    exchange = body.get("exchange_name", "binance_spot")
-    api_key = body.get("api_key", "mock_key")
+async def connect_exchange_account(body: ConnectExchangeRequest, current_user: UserModel = Depends(get_current_user)):
+    """Connect live exchange API credentials. State: API CONNECTED — LIVE TRADING STILL OFF."""
+    res = credential_manager.register_credentials(
+        user_id=str(current_user.id),
+        exchange_name=body.exchange_name,
+        api_key=body.api_key,
+        secret_key=body.secret_key
+    )
+    return res
+
+@router.post("/live/activate")
+async def activate_live_trading(body: ActivateLiveTradingRequest, current_user: UserModel = Depends(get_current_user)):
+    """Explicitly activate live trading with confirmation token."""
+    res = credential_manager.activate_live_trading(
+        user_id=str(current_user.id),
+        confirmation_token=body.confirmation_token
+    )
+    return res
+
+@router.post("/live/deactivate")
+async def deactivate_live_trading(current_user: UserModel = Depends(get_current_user)):
+    """Instantly deactivate live trading and revert to Paper mode."""
+    return credential_manager.deactivate_live_trading(user_id=str(current_user.id))
+
+@router.get("/status")
+async def get_live_execution_status(current_user: UserModel = Depends(get_current_user)):
+    """Get full 5-stage live execution readiness & credential status."""
     return {
-        "status": "CONNECTED",
+        "status": "success",
         "user_id": current_user.id,
-        "exchange": exchange,
-        "api_key_masked": f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "****",
-        "connected_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        "details": credential_manager.get_status(str(current_user.id))
+    }
+
+@router.post("/dry-run")
+async def dry_run_live_intent(body: Dict[str, Any], current_user: UserModel = Depends(get_current_user)):
+    """Dry-run validate an execution intent without sending live exchange network request."""
+    symbol = body.get("symbol", "BTC/USDT")
+    side = body.get("side", "BUY")
+    quantity = float(body.get("quantity", 0.01))
+    order_type = body.get("order_type", "MARKET")
+    price = float(body.get("price", 50000.0))
+
+    intent = ExecutionIntent(
+        symbol=symbol,
+        side=side,
+        quantity=quantity,
+        allocation_usd=round(quantity * price, 2),
+        order_type=order_type,
+        target_price=price,
+        execution_mode="DRY_RUN"
+    )
+
+    receipt = live_adapter.dry_run(intent)
+    return {
+        "status": "success",
+        "receipt": receipt.to_dict(),
+        "intent_hash": intent.to_hash()
     }
 
 @router.get("/accounts")
 async def list_connected_exchange_accounts(current_user: UserModel = Depends(get_current_user)):
     """List user connected exchange accounts."""
+    stat = credential_manager.get_status(str(current_user.id))
     return {
         "user_id": current_user.id,
         "accounts": [
-            {"exchange": "binance_spot", "is_active": True, "status": "CONNECTED"},
-            {"exchange": "bybit_spot", "is_active": True, "status": "CONNECTED"},
-            {"exchange": "okx_spot", "is_active": True, "status": "CONNECTED"},
-            {"exchange": "paper", "is_active": True, "status": "PAPER_SIMULATOR"}
+            {
+                "exchange": stat["exchange_name"] if stat["credentials_configured"] else "binance_spot",
+                "is_active": stat["credentials_configured"],
+                "status": "CONNECTED" if stat["credentials_configured"] else "DISCONNECTED",
+                "live_enabled": stat["live_enabled"]
+            },
+            {"exchange": "paper", "is_active": True, "status": "PAPER_SIMULATOR", "live_enabled": False}
         ]
     }
 
@@ -48,7 +114,7 @@ async def get_exchange_balances(exchange: str = Query("binance_spot"), current_u
 
 @router.post("/order")
 async def submit_live_order(body: Dict[str, Any], current_user: UserModel = Depends(get_current_user)):
-    """Submit order to Smart Order Router (SOR) for optimal execution."""
+    """Submit order through unified OMS with Parity ExecutionIntent."""
     if emergency_kill_switch.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -58,31 +124,30 @@ async def submit_live_order(body: Dict[str, Any], current_user: UserModel = Depe
     symbol = body.get("symbol", "BTC/USDT")
     side = body.get("side", "BUY")
     amount = float(body.get("amount", 0.01))
-    policy = body.get("routing_policy", "BEST_PRICE")
-    preferred = body.get("preferred_exchange")
+    order_type = body.get("order_type", "MARKET")
+    price = float(body.get("price", 0.0))
+    execution_mode = body.get("execution_mode", "PAPER")
 
-    routed = smart_order_router.route_order(symbol, side, amount, policy, preferred)
-    order_id = f"LIVE_ORD_{int(time.time())}"
-
-    return {
-        "order_id": order_id,
-        "status": "FILLED",
-        "user_id": current_user.id,
-        "routing": routed,
-        "fill_price": routed["estimated_price"],
-        "filled_amount": amount,
-        "executed_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
-    }
+    res = execution_orchestrator.submit_order(
+        user_id=str(current_user.id),
+        symbol=symbol,
+        side=side,
+        quantity=amount,
+        order_type=order_type,
+        price=price,
+        execution_mode=execution_mode
+    )
+    return res
 
 @router.post("/cancel")
 async def cancel_live_order(body: Dict[str, Any], current_user: UserModel = Depends(get_current_user)):
-    """Cancel active open live order."""
+    """Cancel active open order."""
     order_id = body.get("order_id", "")
-    return {"status": "CANCELLED", "order_id": order_id, "cancelled_at": time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())}
+    return execution_orchestrator.cancel_order(order_id)
 
 @router.get("/orders")
 async def list_live_orders(current_user: UserModel = Depends(get_current_user)):
-    """List open and historical live orders."""
+    """List open and historical orders."""
     return {
         "user_id": current_user.id,
         "orders": [
@@ -100,35 +165,4 @@ async def list_order_fills(current_user: UserModel = Depends(get_current_user)):
             {"fill_id": "FILL_201", "order_id": "LIVE_ORD_101", "symbol": "BTC/USDT", "fill_price": 64800.0, "fill_amount": 0.05, "fee_usd": 0.32},
             {"fill_id": "FILL_202", "order_id": "LIVE_ORD_102", "symbol": "ETH/USDT", "fill_price": 3450.0, "fill_amount": 0.5, "fee_usd": 0.17}
         ]
-    }
-
-@router.get("/reconciliation")
-async def get_order_reconciliation_audit(current_user: UserModel = Depends(get_current_user)):
-    """Audit local order dictionary against live exchange orderbooks."""
-    local_orders = [{"order_id": "LIVE_ORD_101", "amount": 0.05, "status": "FILLED"}]
-    exchange_orders = [{"order_id": "LIVE_ORD_101", "filled_amount": 0.05, "status": "FILLED"}]
-    return reconciliation_engine.audit_orders(local_orders, exchange_orders)
-
-@router.post("/kill-switch")
-async def trigger_emergency_kill_switch(body: Dict[str, Any], current_user: UserModel = Depends(get_current_user)):
-    """Trigger or deactivate global emergency kill switch."""
-    action = body.get("action", "ACTIVATE").upper()
-    reason = body.get("reason", "MANUAL_USER_TRIGGER")
-    if action == "DEACTIVATE":
-        return emergency_kill_switch.deactivate()
-    return emergency_kill_switch.activate(reason)
-
-@router.get("/latency")
-async def get_exchange_latency_summary(current_user: UserModel = Depends(get_current_user)):
-    """Return API and WebSocket execution response latency metrics."""
-    return latency_monitor.get_latency_summary()
-
-@router.get("/slippage")
-async def get_slippage_analysis(current_user: UserModel = Depends(get_current_user)):
-    """Return execution slippage analysis."""
-    slip = slippage_tracker.calculate_slippage(64800.0, 64815.0, "BUY")
-    return {
-        "user_id": current_user.id,
-        "sample_slippage": slip,
-        "avg_slippage_bps": 2.3
     }

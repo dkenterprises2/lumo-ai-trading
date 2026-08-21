@@ -55,23 +55,35 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
   const [isMobileExpanded, setIsMobileExpanded] = useState<boolean>(false);
 
   const savePreferences = async (newPrefs: TradingPreferences) => {
+    let timeoutId: any = null;
     try {
       setSaving(true);
       setSaveSuccess(false);
       setErrorMessage(null);
 
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), 5000);
+
       const res = await apiFetch('/api/preferences/trading', {
         method: 'PUT',
-        body: JSON.stringify(newPrefs)
+        body: JSON.stringify(newPrefs),
+        signal: controller.signal
       });
-      const data = await res.json();
+      if (timeoutId) clearTimeout(timeoutId);
+      
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        data = { detail: `Server error (${res.status})` };
+      }
 
       if (!res.ok) {
         const detail = data?.detail || `Backend error (${res.status}).`;
         if (res.status === 401) {
           setErrorMessage('Session expired. Please sign out and log back in.');
         } else {
-          setErrorMessage(detail);
+          setErrorMessage(typeof detail === 'string' ? detail : JSON.stringify(detail));
         }
         return;
       }
@@ -93,8 +105,13 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
       setTimeout(() => setSaveSuccess(false), 3000);
       if (onPreferencesUpdated) onPreferencesUpdated();
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to update preferences.');
+      if (err.name === 'AbortError') {
+        setErrorMessage('Request timed out while connecting to backend.');
+      } else {
+        setErrorMessage(err.message || 'Failed to update preferences.');
+      }
     } finally {
+      if (timeoutId) clearTimeout(timeoutId);
       setSaving(false);
     }
   };
@@ -104,13 +121,17 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
       setLoading(true);
       const res = await apiFetch('/api/preferences/trading');
       if (res.ok) {
-        const data = await res.json();
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
+        }
         const prefs = data?.preferences || data;
         if (prefs && typeof prefs.max_concurrent_trades === 'number') {
           const rawMax = prefs.max_concurrent_trades ?? defaultTrades;
-          const effectiveMax = (rawMax <= 10 && isInstPlan) ? 50 : rawMax;
           const loadedPrefs: TradingPreferences = {
-            max_concurrent_trades: effectiveMax,
+            max_concurrent_trades: rawMax,
             max_capital_per_trade_pct: prefs.max_capital_per_trade_pct ?? 10,
             daily_loss_limit_pct: prefs.daily_loss_limit_pct ?? 5,
             symbol_cooldown_minutes: prefs.symbol_cooldown_minutes ?? 10,
@@ -119,11 +140,6 @@ export const SubscriptionLimitsCard: React.FC<SubscriptionLimitsCardProps> = ({
             default_leverage: prefs.default_leverage ?? 1
           };
           setPreferences(loadedPrefs);
-
-          // Auto-sync if backend had legacy 10 positions saved for Institutional plan
-          if (rawMax <= 10 && isInstPlan) {
-            savePreferences(loadedPrefs);
-          }
         }
       }
     } catch (err: any) {

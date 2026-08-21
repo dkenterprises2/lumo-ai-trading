@@ -30,5 +30,11 @@ class PaperTradingGuard:
             f"PAPER TRADING HARD GUARD: Real API key authenticated request BLOCKED in paper mode."
         )
 
+    def is_live_allowed(self) -> bool:
+        return not self.paper_mode
+
 # Global Singleton Guard
 paper_guard = PaperTradingGuard(paper_mode=True)
+paper_mode_guard = paper_guard
+
+

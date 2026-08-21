@@ -34,7 +34,7 @@ class TraderState(str, Enum):
 
 class PaperTrader:
     def __init__(self, initial_balance: float = settings.PAPER_TRADING_INITIAL_BALANCE, user_id: Optional[int] = None):
-        self.user_id = user_id
+        self.user_id = user_id if user_id is not None else 1
         self.state = TraderState.BOOTING
         self.usdt_balance = float(initial_balance)
         self.initial_balance = float(initial_balance)
@@ -44,7 +44,7 @@ class PaperTrader:
         self.equity_history: List[Dict[str, Any]] = []
         self.ledger: List[Dict[str, Any]] = []
         self.last_equity_save_time = 0.0
-        self.auto_bot_enabled = False
+        self.auto_bot_enabled = True
         self.arbitrage_shadow_enabled = True
         self.shadow_replay_enabled = True
         self.autonomous_engine_enabled = True
@@ -168,8 +168,6 @@ class PaperTrader:
 
             if portfolio_state.get("max_concurrent_trades"):
                 saved_max = portfolio_state["max_concurrent_trades"]
-                if saved_max <= 10:
-                    saved_max = 50
                 self.max_open_positions = saved_max
                 if hasattr(self, "risk_manager") and hasattr(self.risk_manager, "config"):
                     self.risk_manager.config.max_concurrent_trades = saved_max
@@ -296,7 +294,7 @@ class PaperTrader:
 
 
     async def flush_persistence(self):
-        """Await until all background persistence tasks in queue finish committing to disk."""
+        """Await until all background persistence tasks in queue finish committing to disk and save portfolio."""
         while self.background_tasks:
             tasks = list(self.background_tasks)
             for item in tasks:
@@ -306,64 +304,9 @@ class PaperTrader:
                     await asyncio.wrap_future(item)
                 self.background_tasks.discard(item)
 
+        await self.save_portfolio_async()
         async with self.persistence_lock:
             logger.info("[PERSISTENCE_FLUSH] All queued persistence tasks committed successfully.")
-
-
-    def _run_serialized_db_task(self, coro):
-        """Serialize all database writes under self.persistence_lock in sequence with thread-safe execution."""
-        async def _serialized_runner():
-            async with self.persistence_lock:
-                try:
-                    res = await coro() if callable(coro) else await coro
-                    logger.info("[SERIALIZED_RUNNER_SUCCESS] DB task executed successfully under persistence lock.")
-                    return res
-                except Exception as e:
-                    logger.error(f"[SERIALIZED_PERSISTENCE_ERROR] {e}", exc_info=True)
-                    raise
-
-
-        target_loop = None
-        try:
-            target_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            pass
-
-        if target_loop is None and self.main_loop and self.main_loop.is_running():
-            target_loop = self.main_loop
-
-        if target_loop is not None and target_loop.is_running():
-            try:
-                current_loop = None
-                try:
-                    current_loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    pass
-
-                if current_loop is target_loop:
-                    task = target_loop.create_task(_serialized_runner())
-                    self.background_tasks.add(task)
-                    task.add_done_callback(lambda t: self.background_tasks.discard(t))
-                else:
-                    fut = asyncio.run_coroutine_threadsafe(_serialized_runner(), target_loop)
-                    self.background_tasks.add(fut)
-                    fut.add_done_callback(lambda f: self.background_tasks.discard(f))
-            except Exception as e:
-                logger.error(f"[PERSISTENCE_SCHEDULING_ERROR] Failed to schedule DB task: {e}", exc_info=True)
-                raise RuntimeError(f"CRITICAL: Failed to schedule database task thread-safely: {e}")
-        else:
-            try:
-                asyncio.run(_serialized_runner())
-            except Exception as e:
-                logger.error(f"[PERSISTENCE_SYNC_FALLBACK_ERROR] {e}", exc_info=True)
-                raise RuntimeError(f"CRITICAL: Failed to execute database task synchronously: {e}")
-
-
-
-
-    async def flush_persistence(self):
-        """Await saving portfolio state and flushing pending background tasks."""
-        await self.save_portfolio_async()
 
     async def save_portfolio_async(self):
         """Awaited serialized save of portfolio state to DB."""
@@ -412,6 +355,52 @@ class PaperTrader:
     async def log_audit_event_async(self, event_type: str, details: str):
         """Awaited serialized audit event log to DB."""
         await self.repo.log_audit_event(event_type, details, user_id=self.user_id)
+
+    def _run_serialized_db_task(self, coro):
+        """Serialize all database writes under self.persistence_lock in sequence with thread-safe execution."""
+        async def _serialized_runner():
+            async with self.persistence_lock:
+                try:
+                    res = await coro() if callable(coro) else await coro
+                    return res
+                except Exception as e:
+                    logger.debug(f"[SERIALIZED_PERSISTENCE] DB task handled: {e}")
+                    return None
+
+        target_loop = None
+        try:
+            target_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+        if target_loop is None and self.main_loop and self.main_loop.is_running():
+            target_loop = self.main_loop
+
+        if target_loop is not None and target_loop.is_running():
+            try:
+                current_loop = None
+                try:
+                    current_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    pass
+
+                if current_loop is target_loop:
+                    task = target_loop.create_task(_serialized_runner())
+                    self.background_tasks.add(task)
+                    task.add_done_callback(lambda t: self.background_tasks.discard(t))
+                else:
+                    fut = asyncio.run_coroutine_threadsafe(_serialized_runner(), target_loop)
+                    self.background_tasks.add(fut)
+                    fut.add_done_callback(lambda f: self.background_tasks.discard(f))
+            except Exception as e:
+                logger.error(f"[PERSISTENCE_SCHEDULING_ERROR] Failed to schedule DB task: {e}", exc_info=True)
+                raise RuntimeError(f"CRITICAL: Failed to schedule database task thread-safely: {e}")
+        else:
+            try:
+                asyncio.run(_serialized_runner())
+            except Exception as e:
+                logger.error(f"[PERSISTENCE_SYNC_FALLBACK_ERROR] {e}", exc_info=True)
+                raise RuntimeError(f"CRITICAL: Failed to execute database task synchronously: {e}")
 
     def _sync_save_portfolio(self):
         """Serialized save of portfolio state."""
@@ -475,8 +464,10 @@ class PaperTrader:
 
         active_positions_list = []
         for symbol, pos in self.positions.items():
-            from market_data import is_valid_price
-            price = current_prices.get(symbol, pos['entry_price'])
+            from market_data import is_valid_price, market_engine
+            price = current_prices.get(symbol)
+            if price is None or not is_valid_price(price):
+                price = market_engine.fetch_current_price(symbol)
             if not is_valid_price(price):
                 logger.warning(f"[PNL_PROTECTION] Symbol={symbol} Candidate price ${price} is invalid. Retaining entry price ${pos['entry_price']}.")
                 price = pos['entry_price']
@@ -682,15 +673,7 @@ class PaperTrader:
 
         margin_required = allocation_usd / leverage
 
-        # Dynamic slot-based margin scaling to allow filling up to max_open_positions (e.g. 50 trades)
-        remaining_slots = max(1, self.max_open_positions - len(self.positions))
-        safe_margin_per_slot = max(10.0, self.usdt_balance / float(remaining_slots))
-
-        if margin_required > safe_margin_per_slot:
-            logger.info(f"[DYNAMIC_MARGIN_SCALING] UserID={self.user_id} | Scaling margin per slot from ${margin_required:.2f} to ${safe_margin_per_slot:.2f} (RemainingSlots={remaining_slots}/{self.max_open_positions})")
-            margin_required = safe_margin_per_slot
-            allocation_usd = margin_required * leverage
-
+        # If required margin exceeds available USDT balance, cap it to available USDT balance
         if margin_required > self.usdt_balance:
             logger.info(f"[RISK_ADJUSTMENT] UserID={self.user_id} | Margin required ${margin_required:.2f} > USDT balance ${self.usdt_balance:.2f}. Cap margin to ${self.usdt_balance:.2f}.")
             margin_required = self.usdt_balance
@@ -791,6 +774,8 @@ class PaperTrader:
             "amount": round(amount, 4),
             "margin_usd": round(margin_required, 2),
             "pnl_usd": 0.0,
+            "net_pnl": 0.0,
+            "pnl": 0.0,
             "pnl_pct": 0.0,
             "entry_time": position["entry_time"],
             "exit_time": "",
@@ -910,6 +895,8 @@ class PaperTrader:
             "amount": round(amount_to_close, 4),
             "margin_usd": round(margin_to_release, 2),
             "pnl_usd": round(pnl_usd, 2),
+            "net_pnl": round(pnl_usd, 2),
+            "pnl": round(pnl_usd, 2),
             "pnl_pct": round(pnl_pct, 2),
             "entry_time": pos['entry_time'],
             "exit_time": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -1008,11 +995,25 @@ class PaperTrader:
         to_close = []
         for symbol, pos in self.positions.items():
             price = current_prices.get(symbol)
-            if not price:
+            if not price or price <= 0:
+                from market_data import market_engine, is_valid_price
+                fetched = market_engine.fetch_current_price(symbol)
+                if is_valid_price(fetched):
+                    price = fetched
+                else:
+                    price = pos.get('current_price', pos.get('entry_price', 0.0))
+
+            if not price or price <= 0:
                 continue
 
             side = pos['side']
             entry_price = pos['entry_price']
+
+            # Price anomaly safety shield: reject impossible price anomalies (>2.5x or <0.3x from entry)
+            if entry_price > 0:
+                if price > entry_price * 2.5 or price < entry_price * 0.3:
+                    logger.warning(f"[TP_SL_SHIELD] Price anomaly ignored for {symbol}: Entry={entry_price}, ReportedPrice={price}")
+                    continue
 
             # Dynamic Trailing Stop & Profit Lock
             if side == "LONG":
@@ -1027,11 +1028,11 @@ class PaperTrader:
                             pos['stop_loss_price'] = trailed_sl
 
                 if pos.get('stop_loss_price') and price <= pos['stop_loss_price']:
-                    to_close.append((symbol, price, f"Stop-Loss Triggered (${pos['stop_loss_price']})"))
+                    to_close.append((symbol, pos['stop_loss_price'], f"Stop-Loss Triggered (${pos['stop_loss_price']})"))
                 elif pos.get('take_profit_price') and price >= pos['take_profit_price']:
-                    to_close.append((symbol, price, f"Take-Profit Triggered (${pos['take_profit_price']})"))
+                    to_close.append((symbol, pos['take_profit_price'], f"Take-Profit Triggered (${pos['take_profit_price']})"))
                 elif pos.get('liquidation_price') and price <= pos['liquidation_price']:
-                    to_close.append((symbol, price, f"Liquidation Triggered (${pos['liquidation_price']})"))
+                    to_close.append((symbol, pos['liquidation_price'], f"Liquidation Triggered (${pos['liquidation_price']})"))
             else: # SHORT
                 trough_price = pos.get('lowest_price', entry_price)
                 if price < trough_price:
@@ -1044,12 +1045,11 @@ class PaperTrader:
                             pos['stop_loss_price'] = trailed_sl
 
                 if pos.get('stop_loss_price') and price >= pos['stop_loss_price']:
-                    to_close.append((symbol, price, f"Stop-Loss Triggered (${pos['stop_loss_price']})"))
+                    to_close.append((symbol, pos['stop_loss_price'], f"Stop-Loss Triggered (${pos['stop_loss_price']})"))
                 elif pos.get('take_profit_price') and price <= pos['take_profit_price']:
-                    to_close.append((symbol, price, f"Take-Profit Triggered (${pos['take_profit_price']})"))
+                    to_close.append((symbol, pos['take_profit_price'], f"Take-Profit Triggered (${pos['take_profit_price']})"))
                 elif pos.get('liquidation_price') and price >= pos['liquidation_price']:
-                    to_close.append((symbol, price, f"Liquidation Triggered (${pos['liquidation_price']})"))
-
+                    to_close.append((symbol, pos['liquidation_price'], f"Liquidation Triggered (${pos['liquidation_price']})"))
 
         for symbol, price, reason in to_close:
             self.close_position(symbol, price, reason=reason)
@@ -1057,73 +1057,55 @@ class PaperTrader:
 
     async def reset_paper_account_async(self, default_balance: float = 10000.0) -> Dict[str, Any]:
         """Reset paper trading account balance to default $10,000 USDT and completely clear positions, orders, trade history, equity history, and ledger in memory and database."""
+        logger.info(f"[RESET_PAPER_ACCOUNT] Executing reset for user_id={self.user_id} with starting balance=${default_balance:.2f}")
+
+        # 1. Atomic Database Reset
+        db_res = await self.repo.reset_user_paper_account(user_id=self.user_id, default_balance=default_balance)
+
+        # 2. Reset In-Memory State for this user
         self.usdt_balance = float(default_balance)
         self.initial_balance = float(default_balance)
         self.daily_start_balance = float(default_balance)
-        self.positions = {}
-        self.orders = []
-        self.trade_history = []
-        self.equity_history = []
-        self.ledger = []
-        self.auto_bot_enabled = False
+        self.positions.clear()
+        self.orders.clear()
+        self.trade_history.clear()
+        self.equity_history.clear()
+        self.auto_bot_enabled = True
 
-        # Add clean initial ledger entry
-        tx_id = f"TX_{int(time.time() * 1000)}_1"
+        # Reset Risk Manager state
+        if hasattr(self, "risk_manager") and hasattr(self.risk_manager, "circuit_breaker"):
+            self.risk_manager.circuit_breaker.current_drawdown_pct = 0.0
+            self.risk_manager.circuit_breaker.is_tripped = False
+
+        # 3. Add single opening deposit entry to memory ledger
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        tx_id = f"TX_{int(time.time() * 1000)}_RESET"
         init_tx = {
             "tx_id": tx_id,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": now_str,
             "tx_type": "DEPOSIT",
             "amount": float(default_balance),
             "balance_after": float(default_balance),
             "reference_id": "RESET_ACCOUNT",
-            "description": "Paper Account Reset to Default $10,000.00 USDT"
+            "description": f"Paper Account Reset to Default ${default_balance:,.2f} USDT"
         }
-        self.ledger.append(init_tx)
+        self.ledger = [init_tx]
 
-        try:
-            import sqlite3
-            from config import settings
-            db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
-            conn = sqlite3.connect(db_path, timeout=30.0)
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA busy_timeout=30000;")
-            cursor = conn.cursor()
-
-            if self.user_id is not None:
-                cursor.execute("DELETE FROM positions WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
-                cursor.execute("DELETE FROM orders WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
-                cursor.execute("DELETE FROM trades WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
-                cursor.execute("DELETE FROM equity_history WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
-                cursor.execute("DELETE FROM wallet_transactions WHERE user_id = ? OR user_id IS NULL", (self.user_id,))
-                cursor.execute(
-                    "UPDATE portfolio SET usdt_balance = ?, initial_balance = ?, margin_used = 0.0, total_value = ?, auto_bot_enabled = 0 WHERE user_id = ? OR user_id IS NULL",
-                    (default_balance, default_balance, default_balance, self.user_id)
-                )
-            else:
-                cursor.execute("DELETE FROM positions")
-                cursor.execute("DELETE FROM orders")
-                cursor.execute("DELETE FROM trades")
-                cursor.execute("DELETE FROM equity_history")
-                cursor.execute("DELETE FROM wallet_transactions")
-                cursor.execute(
-                    "UPDATE portfolio SET usdt_balance = ?, initial_balance = ?, margin_used = 0.0, total_value = ?, auto_bot_enabled = 0",
-                    (default_balance, default_balance, default_balance)
-                )
-
-            conn.commit()
-            conn.close()
-            logger.info(f"[RESET_PAPER_ACCOUNT] Cleanly wiped database records & reset balance to ${default_balance:.2f} for user_id={self.user_id}")
-        except Exception as e:
-            logger.error(f"[RESET_PAPER_ACCOUNT] Direct DB wipe error for user_id={self.user_id}: {e}", exc_info=True)
-
-        await self.save_portfolio_async()
-        await self.record_wallet_tx_async(init_tx)
-        return {"status": "success", "message": f"Paper trading account, open positions, and trade history reset to default ${default_balance:,.2f} USDT."}
+        logger.info(f"[RESET_PAPER_ACCOUNT_SUCCESS] UserID={self.user_id} paper account reset complete. Balance=${self.usdt_balance:.2f}, Positions={len(self.positions)}")
+        return {
+            "ok": True,
+            "status": "success",
+            "message": f"Paper trading account reset successfully to ${default_balance:,.2f} USDT.",
+            "user_id": self.user_id,
+            "starting_balance_usdt": float(default_balance),
+            "open_positions": 0,
+            "open_orders": 0
+        }
 
     def reset_paper_account(self, default_balance: float = 10000.0) -> Dict[str, Any]:
         """Synchronous wrapper for reset_paper_account_async."""
         self._run_serialized_db_task(lambda: self.reset_paper_account_async(default_balance))
-        return {"status": "success", "message": f"Paper trading account reset to default ${default_balance:,.2f} USDT."}
+        return {"ok": True, "status": "success", "message": f"Paper trading account reset to default ${default_balance:,.2f} USDT."}
 
 
 
@@ -1148,6 +1130,33 @@ class TraderManager:
                 await trader_instance.initialize_and_restore_state()
                 self.traders[user_id] = trader_instance
             return self.traders[user_id]
+
+    async def load_all_traders_from_db(self):
+        """Preload active traders for all registered users from database on startup."""
+        try:
+            from backend.database.session import AsyncSessionLocal
+            from backend.models.domain import UserModel, PortfolioModel
+            from sqlalchemy import select
+            async with AsyncSessionLocal() as session:
+                stmt = select(PortfolioModel.user_id).where(PortfolioModel.user_id.is_not(None))
+                res = await session.execute(stmt)
+                user_ids = set(res.scalars().all())
+                
+                u_stmt = select(UserModel.id)
+                u_res = await session.execute(u_stmt)
+                for uid in u_res.scalars().all():
+                    user_ids.add(uid)
+
+                for uid in user_ids:
+                    if uid not in self.traders:
+                        tr = PaperTrader(user_id=uid)
+                        if self.main_loop:
+                            tr.set_main_event_loop(self.main_loop)
+                        await tr.initialize_and_restore_state()
+                        self.traders[uid] = tr
+                logger.info(f"[TRADER_MANAGER] Successfully preloaded {len(self.traders)} active user trading engines: {list(self.traders.keys())}")
+        except Exception as e:
+            logger.warning(f"[TRADER_MANAGER] Could not preload all user traders: {e}")
 
 trader_manager = TraderManager()
 trader = PaperTrader()

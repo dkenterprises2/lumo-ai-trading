@@ -86,27 +86,28 @@ class CorrelationEngine:
                 "cluster_exposures": {0: exp_pct}
             }
 
-        # Build empirical correlation matrix or fallback synthetic correlation matrix
+        # Build empirical correlation matrix from real historical candle archive
         if price_history_df is not None and not price_history_df.empty:
             returns = price_history_df.pct_change().dropna()
             corr_df = self.compute_correlation_matrix(returns, window=50)
         else:
-            # Fallback synthetic correlation lookup
-            n = len(symbols)
-            matrix = np.eye(n)
-            for i in range(n):
-                for j in range(i + 1, n):
-                    s1, s2 = symbols[i], symbols[j]
-                    # High correlation for major pairs
-                    if ("BTC" in s1 or "ETH" in s1) and ("BTC" in s2 or "ETH" in s2 or "SOL" in s2):
-                        val = 0.85
-                    elif ("PEPE" in s1 or "SHIB" in s1 or "FLOKI" in s1) and ("PEPE" in s2 or "SHIB" in s2 or "FLOKI" in s2):
-                        val = 0.90
-                    else:
-                        val = 0.45
-                    matrix[i, j] = val
-                    matrix[j, i] = val
-            corr_df = pd.DataFrame(matrix, index=symbols, columns=symbols)
+            from backend.marketdata.historical_candle_archive import historical_candle_archive
+            series_dict = {}
+            for s in symbols:
+                c_list = historical_candle_archive.get_candles(s, limit=60)
+                if len(c_list) >= 10:
+                    prices = [c.close for c in c_list]
+                    s_series = pd.Series(prices).pct_change().dropna()
+                    series_dict[s] = s_series
+            
+            if len(series_dict) == len(symbols):
+                df_returns = pd.DataFrame(series_dict).dropna()
+                if not df_returns.empty and len(df_returns) >= 5:
+                    corr_df = self.compute_correlation_matrix(df_returns, window=50)
+                else:
+                    corr_df = pd.DataFrame(np.eye(len(symbols)), index=symbols, columns=symbols)
+            else:
+                corr_df = pd.DataFrame(np.eye(len(symbols)), index=symbols, columns=symbols)
 
         symbol_risks = {}
         cluster_exposures: Dict[int, float] = {}

@@ -11,7 +11,7 @@ router = APIRouter(prefix="/api/autonomous", tags=["Phase 41 — Autonomous Shad
 async def get_autonomous_status(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Fetch current autonomous engine status for the current user."""
     from trader import trader_manager
-    user_id = current_user.id if current_user else 1
+    user_id = getattr(current_user, "id", 1) if (current_user and hasattr(current_user, "id")) else 1
     trader_inst = await trader_manager.get_trader_for_user(user_id)
     user_auto_enabled = getattr(trader_inst, "autonomous_engine_enabled", True)
     
@@ -23,7 +23,7 @@ async def get_autonomous_status(current_user: Optional[UserModel] = Depends(get_
 async def start_autonomous_engine(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Start autonomous shadow trading scan and execution engine for current user."""
     from trader import trader_manager
-    user_id = current_user.id if current_user else 1
+    user_id = getattr(current_user, "id", 1) if (current_user and hasattr(current_user, "id")) else 1
     trader_inst = await trader_manager.get_trader_for_user(user_id)
     trader_inst.autonomous_engine_enabled = True
     await trader_inst.save_portfolio_async()
@@ -33,7 +33,7 @@ async def start_autonomous_engine(current_user: Optional[UserModel] = Depends(ge
 async def pause_autonomous_engine(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Pause autonomous shadow trading engine for current user."""
     from trader import trader_manager
-    user_id = current_user.id if current_user else 1
+    user_id = getattr(current_user, "id", 1) if (current_user and hasattr(current_user, "id")) else 1
     trader_inst = await trader_manager.get_trader_for_user(user_id)
     trader_inst.autonomous_engine_enabled = False
     await trader_inst.save_portfolio_async()
@@ -43,7 +43,7 @@ async def pause_autonomous_engine(current_user: Optional[UserModel] = Depends(ge
 async def resume_autonomous_engine(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Resume autonomous shadow trading engine for current user."""
     from trader import trader_manager
-    user_id = current_user.id if current_user else 1
+    user_id = getattr(current_user, "id", 1) if (current_user and hasattr(current_user, "id")) else 1
     trader_inst = await trader_manager.get_trader_for_user(user_id)
     trader_inst.autonomous_engine_enabled = True
     await trader_inst.save_portfolio_async()
@@ -53,7 +53,7 @@ async def resume_autonomous_engine(current_user: Optional[UserModel] = Depends(g
 async def stop_autonomous_engine(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     """Stop autonomous shadow trading engine for current user."""
     from trader import trader_manager
-    user_id = current_user.id if current_user else 1
+    user_id = getattr(current_user, "id", 1) if (current_user and hasattr(current_user, "id")) else 1
     trader_inst = await trader_manager.get_trader_for_user(user_id)
     trader_inst.autonomous_engine_enabled = False
     await trader_inst.save_portfolio_async()

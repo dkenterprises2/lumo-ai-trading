@@ -107,8 +107,12 @@ export default function ProfilePage() {
     setIsResettingAccount(true);
     try {
       const res = await resetPaperAccount();
-      setActionMsg(res.message || 'Paper trading account reset to default $10,000.00!');
+      setActionMsg(res.message || 'Full Platform Paper trading account reset to default $10,000.00!');
       setShowResetConfirm(false);
+      try {
+        localStorage.removeItem('lumo_portfolio_cache');
+        localStorage.removeItem('lumo_shadow_cache');
+      } catch (e) {}
     } catch (err: any) {
       setActionErr(err.message || 'Failed to reset paper account.');
     } finally {

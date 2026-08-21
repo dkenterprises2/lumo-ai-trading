@@ -22,8 +22,10 @@ else:
 
 from sqlalchemy import event
 
+from sqlalchemy.pool import NullPool
+
 is_sqlite = "sqlite" in ASYNC_DB_URL
-connect_args = {"check_same_thread": False, "timeout": 30.0} if is_sqlite else {}
+connect_args = {"check_same_thread": False, "timeout": 60.0} if is_sqlite else {}
 
 engine_kwargs = {
     "echo": False,
@@ -31,7 +33,9 @@ engine_kwargs = {
     "connect_args": connect_args
 }
 
-if not is_sqlite:
+if is_sqlite:
+    engine_kwargs["poolclass"] = NullPool
+else:
     engine_kwargs.update({
         "pool_size": getattr(settings, "DB_POOL_SIZE", 10),
         "max_overflow": getattr(settings, "DB_MAX_OVERFLOW", 20),
@@ -48,15 +52,22 @@ async_engine = create_async_engine(
 @event.listens_for(async_engine.sync_engine, "connect")
 def set_sqlite_pragma(dbapi_connection, connection_record):
     try:
-        conn = getattr(dbapi_connection, "_conn", dbapi_connection)
-        if hasattr(conn, "cursor"):
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")
-            cursor.execute("PRAGMA busy_timeout=30000")
-            cursor.execute("PRAGMA synchronous=NORMAL")
-            cursor.close()
-    except Exception as e:
-        logger.warning(f"Failed to set SQLite PRAGMAs: {e}")
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode = WAL;")
+        cursor.execute("PRAGMA busy_timeout = 60000;")
+        cursor.execute("PRAGMA synchronous = NORMAL;")
+        cursor.close()
+    except Exception:
+        try:
+            conn = getattr(dbapi_connection, "_conn", dbapi_connection)
+            if hasattr(conn, "cursor"):
+                c = conn.cursor()
+                c.execute("PRAGMA journal_mode = WAL;")
+                c.execute("PRAGMA busy_timeout = 60000;")
+                c.execute("PRAGMA synchronous = NORMAL;")
+                c.close()
+        except Exception:
+            pass
 
 
 
@@ -119,10 +130,18 @@ async def init_db():
 
                 if inspector.has_table("portfolio"):
                     port_cols = [c["name"] for c in inspector.get_columns("portfolio")]
-                    if "default_allocation_usd" not in port_cols:
-                        sync_conn.execute(text("ALTER TABLE portfolio ADD COLUMN default_allocation_usd FLOAT DEFAULT 1000.0"))
-                    if "default_leverage" not in port_cols:
-                        sync_conn.execute(text("ALTER TABLE portfolio ADD COLUMN default_leverage INTEGER DEFAULT 1"))
+                    port_new_cols = [
+                        ("default_allocation_usd", "FLOAT DEFAULT 1000.0"),
+                        ("default_leverage", "INTEGER DEFAULT 1"),
+                        ("max_concurrent_trades", "INTEGER DEFAULT 10"),
+                        ("max_capital_per_trade_pct", "FLOAT DEFAULT 10.0"),
+                        ("daily_loss_limit_pct", "FLOAT DEFAULT 5.0"),
+                        ("symbol_cooldown_minutes", "INTEGER DEFAULT 10"),
+                        ("allowed_symbols_json", "TEXT NULL")
+                    ]
+                    for col_name, col_type in port_new_cols:
+                        if col_name not in port_cols:
+                            sync_conn.execute(text(f"ALTER TABLE portfolio ADD COLUMN {col_name} {col_type}"))
 
                 user_id_tables = ["portfolio", "positions", "trades", "orders", "equity_history", "wallet_transactions", "performance", "audit_logs", "settings"]
                 for tbl in user_id_tables:

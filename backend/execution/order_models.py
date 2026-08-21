@@ -24,12 +24,28 @@ class OMSOrder:
     updated_at: float = field(default_factory=time.time)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
-        if self.remaining_quantity == 0.0 and self.quantity > 0:
-            self.remaining_quantity = self.quantity
-
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        avg_f = self.average_fill_price or (self.price or 100.0)
+        mark_p = self.metadata.get("mark_price", avg_f)
+        qty = self.filled_quantity or self.quantity
+        tot_val = round(qty * avg_f, 2)
+        fee = round(tot_val * 0.00075, 2)  # Standard 0.075% taker fee
+
+        # Authentic Mark-to-Market PnL Calculation
+        if self.side.upper() in ["BUY", "LONG"]:
+            pnl_usd = round((mark_p - avg_f) * qty - fee, 2)
+        else:
+            pnl_usd = round((avg_f - mark_p) * qty - fee, 2)
+
+        pnl_pct = round((pnl_usd / max(1.0, tot_val)) * 100.0, 2)
+
+        d["mark_price"] = mark_p
+        d["total_value_usd"] = tot_val
+        d["fee_usd"] = fee
+        d["pnl_usd"] = pnl_usd
+        d["pnl_pct"] = pnl_pct
+        return d
 
 @dataclass
 class OMSFill:

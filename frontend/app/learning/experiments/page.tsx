@@ -7,13 +7,13 @@ import { Header } from "@/components/layout/Header";
 import { Footer } from "@/components/layout/Footer";
 import { useTradingStream } from "@/hooks/useTradingStream";
 import { useQuery } from "@tanstack/react-query";
-import { fetchPortfolio, fetchNewsSentiment, toggleBot, setStrategy } from "@/services/api";
-import { FlaskConical, Play, CheckCircle2, AlertCircle, RefreshCw } from "lucide-react";
+import { fetchPortfolio, fetchNewsSentiment, toggleBot, setStrategy, apiFetch } from "@/services/api";
+import { FlaskConical, Play, CheckCircle2, AlertCircle, RefreshCw, Sparkles, TrendingUp, Sliders } from "lucide-react";
 
 export default function ExperimentsPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [optFeedback, setOptFeedback] = useState<string | null>(null);
+  const [optFeedback, setOptFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const stream = useTradingStream();
 
   const portfolioQuery = useQuery({ queryKey: ["portfolio"], queryFn: fetchPortfolio, refetchInterval: 5000 });
@@ -22,7 +22,8 @@ export default function ExperimentsPage() {
   const expQuery = useQuery({
     queryKey: ["experiments"],
     queryFn: async () => {
-      const res = await fetch("/api/learning/experiments?limit=20");
+      const res = await apiFetch("/api/learning/experiments?limit=20");
+      if (!res.ok) return { experiments: [] };
       return res.json();
     },
     refetchInterval: 10000
@@ -35,16 +36,29 @@ export default function ExperimentsPage() {
     setIsOptimizing(true);
     setOptFeedback(null);
     try {
-      const res = await fetch("/api/learning/run-optimization", {
+      const res = await apiFetch("/api/learning/run-optimization", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ strategy_name: "AI_HYBRID", market_regime: "NEUTRAL", trials: 100 })
+        body: JSON.stringify({ strategy_name: "AI_HYBRID", market_regime: "NEUTRAL", trials: 30 })
       });
-      const data = await res.json();
-      setOptFeedback(`Optuna Bayesian optimization complete! Best Score: ${data.best_score?.toFixed(4)} (Experiment: ${data.experiment_id})`);
-      expQuery.refetch();
+      if (res.ok) {
+        const data = await res.json();
+        setOptFeedback({
+          type: "success",
+          message: `✨ Optuna Bayesian Optimization Complete! Best Objective Score: ${data.best_score?.toFixed(4)} (Experiment: ${data.experiment_id})`
+        });
+        expQuery.refetch();
+      } else {
+        const err = await res.json().catch(() => ({ detail: "Optimization request failed" }));
+        setOptFeedback({
+          type: "error",
+          message: `Optimization failed: ${err.detail || err.message || "Server error"}`
+        });
+      }
     } catch (err: any) {
-      setOptFeedback(`Error running Optuna optimization: ${err.message}`);
+      setOptFeedback({
+        type: "error",
+        message: `Error running Optuna optimization: ${err.message || "Network error"}`
+      });
     } finally {
       setIsOptimizing(false);
     }
@@ -78,9 +92,23 @@ export default function ExperimentsPage() {
           </div>
 
           {optFeedback && (
-            <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-300 text-xs font-semibold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-purple-400 flex-shrink-0" />
-              <span>{optFeedback}</span>
+            <div className={`p-4 rounded-xl border flex items-center gap-2.5 text-xs font-semibold ${
+              optFeedback.type === "success" 
+                ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-300" 
+                : "bg-rose-500/10 border-rose-500/30 text-rose-300"
+            }`}>
+              {optFeedback.type === "success" ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+              )}
+              <span className="flex-1">{optFeedback.message}</span>
+              <button
+                onClick={() => setOptFeedback(null)}
+                className="text-slate-400 hover:text-white text-xs font-bold px-1"
+              >
+                ✕
+              </button>
             </div>
           )}
 

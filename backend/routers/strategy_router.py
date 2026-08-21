@@ -50,18 +50,26 @@ async def disable_strategy_instance(strategy_id: str, current_user: UserModel = 
     """Pause strategy execution."""
     return strategy_orchestrator.disable_strategy(current_user.id, strategy_id)
 
+from backend.repositories.trader_repository import TraderRepository
+
+trader_repo = TraderRepository()
+
 @router.get("/portfolios")
 async def list_user_portfolios(current_user: UserModel = Depends(get_current_user)):
-    """Return isolated multi-portfolio instances with capital allocations."""
+    """Return real user portfolio state and breakdown."""
+    p_state = await trader_repo.load_portfolio_state(current_user.id)
+    if not p_state:
+        p_state = {
+            "usdt_balance": 10000.0,
+            "margin_used": 0.0,
+            "total_value": 10000.0
+        }
+    
+    total_val = p_state.get("total_value", p_state.get("usdt_balance", 10000.0))
     portfolios = [
-        {"id": "PAPER", "name": "Paper Trading", "type": "PAPER", "equity": 10000.0, "allocation_pct": 25.0},
-        {"id": "SPOT", "name": "Spot Multi-Factor", "type": "SPOT", "equity": 25000.0, "allocation_pct": 25.0},
-        {"id": "FUTURES", "name": "Futures Momentum", "type": "FUTURES", "equity": 15000.0, "allocation_pct": 20.0},
-        {"id": "SWING", "name": "Swing Reversal", "type": "SWING", "equity": 10000.0, "allocation_pct": 15.0},
-        {"id": "SCALPING", "name": "High-Frequency Scalp", "type": "SCALPING", "equity": 5000.0, "allocation_pct": 10.0},
-        {"id": "RESEARCH", "name": "AI Experiment Lab", "type": "RESEARCH", "equity": 5000.0, "allocation_pct": 5.0}
+        {"id": "PAPER", "name": "Paper Trading", "type": "PAPER", "equity": round(total_val, 2), "allocation_pct": 100.0}
     ]
-    return {"portfolios": portfolios, "total_net_worth": 70000.0}
+    return {"portfolios": portfolios, "total_net_worth": round(total_val, 2)}
 
 @router.post("/portfolios")
 async def create_user_portfolio(body: Dict[str, Any], current_user: UserModel = Depends(get_current_user)):
@@ -72,9 +80,6 @@ async def create_user_portfolio(body: Dict[str, Any], current_user: UserModel = 
 
 @router.get("/performance")
 async def get_performance_analytics(current_user: UserModel = Depends(get_current_user)):
-    """Fetch institutional performance metrics."""
-    mock_trades = [
-        {"pnl_usd": 150.0}, {"pnl_usd": -40.0}, {"pnl_usd": 220.0},
-        {"pnl_usd": 90.0}, {"pnl_usd": -30.0}, {"pnl_usd": 310.0}
-    ]
-    return performance_engine_v2.calculate_performance_summary(mock_trades)
+    """Fetch real institutional performance metrics derived from user trade history."""
+    real_trades = await trader_repo.load_trade_history(current_user.id)
+    return performance_engine_v2.calculate_performance_summary(real_trades)

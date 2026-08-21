@@ -2,10 +2,12 @@
 
 import React from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { TradingConnectionState } from "@/hooks/useTradingStream";
 import {
   LayoutDashboard,
+  Sparkles,
+  Flame,
   Brain,
   Scan,
   LineChart,
@@ -60,11 +62,12 @@ export const sidebarItems: SidebarItem[] = [
   { id: "risk", label: "Portfolio Risk", href: "/risk", icon: ShieldAlert, category: "Institutional Intelligence", badge: "READY" },
   { id: "execution", label: "Execution OMS/EMS", href: "/execution", icon: Crosshair, category: "Institutional Intelligence", badge: "READY" },
   { id: "shadow", label: "Shadow Trading", href: "/shadow", icon: Cpu, category: "Institutional Intelligence", badge: "READY" },
+  { id: "autonomous", label: "Autonomous Engine", href: "/autonomous", icon: Zap, category: "Institutional Intelligence", badge: "READY" },
   { id: "arbitrage", label: "Arbitrage Intelligence", href: "/arbitrage", icon: ArrowLeftRight, category: "Institutional Intelligence", badge: "READY" },
   { id: "news", label: "News Intelligence", href: "/news", icon: Newspaper, category: "Institutional Intelligence", badge: "LIVE" },
 
   // Analytics & Trading
-  { id: "scanner", label: "Market Scanner", href: "/scanner", icon: Scan, category: "Analytics" },
+  { id: "scanner", label: "Spot Coin Research", href: "/scanner", icon: Sparkles, category: "Core", badge: "NEW" },
   { id: "charts", label: "Charts", href: "/charts", icon: LineChart, category: "Analytics" },
   { id: "orders", label: "Orders", href: "/orders", icon: ClipboardList, category: "Analytics" },
   { id: "positions", label: "Positions", href: "/positions", icon: Crosshair, category: "Analytics" },
@@ -88,7 +91,13 @@ export const sidebarItems: SidebarItem[] = [
 
 export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, connectionState }: SidebarProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const { user, logout } = useAuth();
+  const [mounted, setMounted] = React.useState(false);
+
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const categories: Array<SidebarItem["category"]> = [
     "Core",
@@ -98,9 +107,20 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
     "Settings"
   ];
 
+  const handleNavClick = (e: React.MouseEvent<HTMLAnchorElement>, href: string, id: string) => {
+    if (setActiveTab) {
+      setActiveTab(id);
+    }
+    // If standard left click without modifier keys, trigger router.push immediately
+    if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+      router.push(href);
+    }
+  };
+
   return (
     <aside
-      className={`fixed left-0 top-0 z-40 h-screen transition-all duration-300 border-r border-slate-800/80 bg-slate-950/90 backdrop-blur-xl flex flex-col justify-between ${
+      suppressHydrationWarning
+      className={`fixed left-0 top-0 z-50 h-screen transition-all duration-300 border-r border-slate-800/80 bg-slate-950/95 backdrop-blur-xl flex flex-col justify-between select-none pointer-events-auto ${
         collapsed ? "w-20" : "w-64"
       }`}
     >
@@ -124,7 +144,7 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
           </div>
           <button
             onClick={() => setCollapsed(!collapsed)}
-            className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-100 hover:border-slate-700 transition"
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-100 hover:border-slate-700 transition cursor-pointer"
           >
             {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
           </button>
@@ -132,11 +152,12 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
 
         {/* Navigation List */}
         <nav className="p-3 space-y-3 overflow-y-auto max-h-[calc(100vh-140px)] scrollbar-thin scrollbar-thumb-slate-800">
-          {(user?.role?.toUpperCase() === 'SUPER_ADMIN' || user?.role?.toUpperCase() === 'SUPERADMIN' || user?.email?.toLowerCase() === 'jiodkd@gmail.com') && (
+          {mounted && (user?.role?.toUpperCase() === 'SUPER_ADMIN' || user?.role?.toUpperCase() === 'SUPERADMIN' || user?.email?.toLowerCase() === 'jiodkd@gmail.com') && (
             <Link
               href="/admin"
+              onClick={(e) => handleNavClick(e, "/admin", "admin")}
               title={collapsed ? "Super Admin Console" : undefined}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold transition-all duration-200 cursor-pointer ${
                 pathname?.startsWith("/admin")
                   ? "bg-gradient-to-r from-purple-500/30 to-blue-500/20 text-purple-300 border border-purple-500/40 shadow-lg shadow-purple-500/20"
                   : "bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20"
@@ -168,9 +189,9 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
                     <Link
                       key={item.id}
                       href={item.href}
-                      onClick={() => setActiveTab && setActiveTab(item.id)}
+                      onClick={(e) => handleNavClick(e, item.href, item.id)}
                       title={collapsed ? item.label : undefined}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200 ${
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer ${
                         isActive
                           ? "bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400 border border-cyan-500/35 shadow-md shadow-cyan-500/10 font-bold"
                           : "text-slate-400 hover:bg-slate-900/80 hover:text-slate-100 border border-transparent"
@@ -200,10 +221,14 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
 
 
       {/* Footer / Account Profile & Logout */}
-      <div className="p-3 border-t border-slate-800/80 bg-slate-900/40">
-        {user ? (
+      <div suppressHydrationWarning className="p-3 border-t border-slate-800/80 bg-slate-900/40">
+        {mounted && user ? (
           <div className="flex items-center justify-between">
-            <Link href="/profile" className="flex items-center gap-3 overflow-hidden">
+            <Link
+              href="/profile"
+              onClick={(e) => handleNavClick(e, "/profile", "profile")}
+              className="flex items-center gap-3 overflow-hidden cursor-pointer"
+            >
               <img
                 src={user.avatar || "https://api.dicebear.com/7.x/avataaars/svg?seed=LumoTrader"}
                 alt={user.name}
@@ -222,7 +247,7 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
             <button
               onClick={logout}
               title="Sign Out"
-              className="p-2 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors"
+              className="p-2 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 transition-colors cursor-pointer"
             >
               <LogOut className="h-4 w-4" />
             </button>
@@ -230,7 +255,8 @@ export function Sidebar({ activeTab, setActiveTab, collapsed, setCollapsed, conn
         ) : (
           <Link
             href="/login"
-            className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-xs font-semibold text-cyan-400 hover:bg-cyan-500/20 transition-colors"
+            onClick={(e) => handleNavClick(e, "/login", "login")}
+            className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-cyan-500/10 border border-cyan-500/20 rounded-xl text-xs font-semibold text-cyan-400 hover:bg-cyan-500/20 transition-colors cursor-pointer"
           >
             <UserIcon className="h-4 w-4" />
             {!collapsed && <span>Sign In</span>}

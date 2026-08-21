@@ -23,30 +23,46 @@ class SentimentEngine:
             "ban", "liquidation", "outflow", "collapse", "fraud", "bankruptcy",
             "delisting", "regulation risk", "drop"
         ]
+        self._fng_cache = None
+        self._fng_cache_time = 0.0
+        self._news_cache = None
+        self._news_cache_time = 0.0
 
     def fetch_fear_and_greed_index(self) -> Dict[str, Any]:
-        """Fetch real-time Fear & Greed Index from Alternative.me API."""
+        """Fetch real-time Fear & Greed Index with 5-minute memory cache."""
+        now = time.time()
+        if self._fng_cache and (now - self._fng_cache_time) < 300.0:
+            return self._fng_cache
+
         try:
             url = "https://api.alternative.me/fng/?limit=1"
-            res = requests.get(url, timeout=5)
+            res = requests.get(url, timeout=2.0)
             if res.status_code == 200:
                 data = res.json()
                 item = data['data'][0]
                 val = int(item['value'])
                 classification = item['value_classification']
-                return {
+                self._fng_cache = {
                     "value": val,
                     "classification": classification,
                     "timestamp": item.get('timestamp')
                 }
+                self._fng_cache_time = now
+                return self._fng_cache
         except Exception as e:
-            logger.warning(f"Fear & Greed API error: {e}")
+            logging.getLogger(__name__).warning(f"Fear & Greed API error: {e}")
         
-        # Default fallback
-        return {"value": 55, "classification": "Greed", "timestamp": str(int(time.time()))}
+        fallback = {"value": 55, "classification": "Greed", "timestamp": str(int(now))}
+        self._fng_cache = fallback
+        self._fng_cache_time = now
+        return fallback
 
     def fetch_crypto_news(self) -> List[Dict[str, Any]]:
-        """Fetch latest crypto headlines from public RSS feeds."""
+        """Fetch latest crypto headlines with 5-minute cache and non-blocking timeout."""
+        now = time.time()
+        if self._news_cache and (now - self._news_cache_time) < 300.0:
+            return self._news_cache
+
         rss_feeds = [
             ("CoinTelegraph", "https://cointelegraph.com/rss"),
             ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
@@ -56,33 +72,35 @@ class SentimentEngine:
         articles = []
         for source_name, feed_url in rss_feeds:
             try:
-                parsed = feedparser.parse(feed_url)
-                for entry in parsed.entries[:5]:  # Top 5 entries per source
-                    title = entry.get('title', '')
-                    summary = entry.get('summary', entry.get('description', ''))
-                    link = entry.get('link', '')
-                    published = entry.get('published', entry.get('updated', 'Recently'))
+                resp = requests.get(feed_url, timeout=2.0)
+                if resp.status_code == 200:
+                    parsed = feedparser.parse(resp.content)
+                    for entry in parsed.entries[:5]:  # Top 5 entries per source
+                        title = entry.get('title', '')
+                        summary = entry.get('summary', entry.get('description', ''))
+                        link = entry.get('link', '')
+                        published = entry.get('published', entry.get('updated', 'Recently'))
 
-                    # Calculate sentiment for article
-                    sentiment_info = self.analyze_text_sentiment(f"{title}. {summary}")
+                        sentiment_info = self.analyze_text_sentiment(f"{title}. {summary}")
 
-                    articles.append({
-                        "source": source_name,
-                        "title": title,
-                        "summary": summary[:200] + "..." if len(summary) > 200 else summary,
-                        "link": link,
-                        "published": published,
-                        "sentiment": sentiment_info['label'],
-                        "sentiment_score": sentiment_info['score'],
-                        "compound": sentiment_info['compound']
-                    })
+                        articles.append({
+                            "source": source_name,
+                            "title": title,
+                            "summary": summary[:200] + "..." if len(summary) > 200 else summary,
+                            "link": link,
+                            "published": published,
+                            "sentiment": sentiment_info['label'],
+                            "sentiment_score": sentiment_info['score'],
+                            "compound": sentiment_info['compound']
+                        })
             except Exception as e:
-                logger.warning(f"Error fetching news feed {source_name}: {e}")
+                logging.getLogger(__name__).debug(f"Feed error for {source_name}: {e}")
 
-        # If offline or feeds failed, return realistic mock articles
         if not articles:
             articles = self._get_fallback_news()
 
+        self._news_cache = articles
+        self._news_cache_time = now
         return articles
 
     def _get_fallback_news(self) -> List[Dict[str, Any]]:

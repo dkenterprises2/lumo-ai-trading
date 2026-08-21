@@ -38,36 +38,44 @@ export function ExecutionTimeline({ transitions, executionId, algorithm, netPnl 
   }
 
   const getStepIcon = (state: string) => {
-    switch (state) {
-      case 'DETECTED':
-      case 'VALIDATING':
-        return <Activity className="w-4 h-4 text-cyan-400" />;
-      case 'RISK_CHECK':
-      case 'GOVERNANCE_CHECK':
-        return <ShieldCheck className="w-4 h-4 text-purple-400" />;
-      case 'APPROVED':
-      case 'EXECUTING':
-        return <Zap className="w-4 h-4 text-amber-400" />;
-      case 'FILLED':
-      case 'POSITION_OPEN':
-      case 'MONITORING':
-        return <Layers className="w-4 h-4 text-indigo-400" />;
-      case 'EXIT_TRIGGERED':
-      case 'CLOSING':
-      case 'CLOSED':
-      case 'COMPLETED':
-        return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
-      default:
-        return <AlertTriangle className="w-4 h-4 text-rose-400" />;
+    const uState = (state || '').toUpperCase();
+    if (uState.includes('REJECT') || uState.includes('FAIL') || uState.includes('CANCEL') || uState.includes('BLOCK') || uState.includes('ERROR')) {
+      return <AlertTriangle className="w-4 h-4 text-rose-400" />;
     }
+    if (uState.includes('SCAN') || uState.includes('TICK') || uState.includes('DETECT')) {
+      return <Activity className="w-4 h-4 text-cyan-400" />;
+    }
+    if (uState.includes('VALIDAT') || uState.includes('QUOTE')) {
+      return <Clock className="w-4 h-4 text-sky-400" />;
+    }
+    if (uState.includes('RISK') || uState.includes('GOVERNANCE') || uState.includes('GATE') || uState.includes('IDEMPOTENT')) {
+      return <ShieldCheck className="w-4 h-4 text-purple-400" />;
+    }
+    if (uState.includes('APPROV') || uState.includes('SELECT') || uState.includes('DIRECT') || uState.includes('EXECUTING')) {
+      return <Zap className="w-4 h-4 text-amber-400" />;
+    }
+    if (uState.includes('SUBMIT') || uState.includes('FILL') || uState.includes('OMS')) {
+      return <Layers className="w-4 h-4 text-indigo-400" />;
+    }
+    if (uState.includes('PERSIST') || uState.includes('MONITOR') || uState.includes('POSITION') || uState.includes('COMPLETE') || uState.includes('CLOSED')) {
+      return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
+    }
+    return <CheckCircle2 className="w-4 h-4 text-emerald-400" />;
   };
 
   const getStepColor = (state: string) => {
-    if (['REJECTED', 'STALE', 'RISK_BLOCKED', 'GOVERNANCE_BLOCKED', 'LIQUIDITY_BLOCKED', 'EXCHANGE_UNHEALTHY', 'EXECUTION_FAILED', 'CANCELLED'].includes(state)) {
+    const uState = (state || '').toUpperCase();
+    if (uState.includes('REJECT') || uState.includes('FAIL') || uState.includes('CANCEL') || uState.includes('BLOCK') || uState.includes('ERROR')) {
       return 'border-rose-500/30 bg-rose-500/10 text-rose-300';
     }
-    if (['COMPLETED', 'CLOSED'].includes(state)) {
+    if (uState.includes('COMPLETED') || uState.includes('CLOSED') || uState.includes('PERSIST') || uState.includes('CONFIRM')) {
       return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300';
+    }
+    if (uState.includes('APPROV') || uState.includes('DIRECT')) {
+      return 'border-amber-500/30 bg-amber-500/10 text-amber-300';
+    }
+    if (uState.includes('RISK') || uState.includes('GOVERNANCE')) {
+      return 'border-purple-500/30 bg-purple-500/10 text-purple-300';
     }
     return 'border-slate-800 bg-slate-950/70 text-slate-300';
   };

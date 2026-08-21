@@ -16,7 +16,7 @@ export default function ShadowPage() {
   const portfolioQuery = useQuery({ queryKey: ["portfolio"], queryFn: fetchPortfolio, refetchInterval: 5000 });
   const newsQuery = useQuery({ queryKey: ["news-sentiment"], queryFn: fetchNewsSentiment, refetchInterval: 300000 });
 
-  const currentPortfolio = stream.isConnected && stream.portfolio ? stream.portfolio : portfolioQuery.data ?? null;
+  const currentPortfolio = stream.portfolio ?? portfolioQuery.data ?? null;
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 selection:bg-purple-500/30">

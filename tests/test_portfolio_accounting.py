@@ -52,6 +52,7 @@ async def test_portfolio_accounting_and_persistence():
     assert summary0["total_pnl_usd"] == 0.0
 
     # 2. Open Position (Executed Order)
+    trader.max_capital_per_trade_pct = 25.0
     res_open = trader.open_position(
         symbol="BTC/USDT",
         side="LONG",

@@ -87,41 +87,6 @@ class PerformanceDatasetBuilder:
                 "reward": reward
             })
 
-        if not records:
-            # Fallback synthetic demo record if dataset is empty
-            records.append({
-                "trade_id": "DEMO_TRADE_001",
-                "symbol": "BTC/USDT",
-                "side": "LONG",
-                "entry_price": 65000.0,
-                "exit_price": 65500.0,
-                "quantity": 0.1,
-                "gross_pnl": 50.0,
-                "net_pnl": 48.0,
-                "fees": 2.0,
-                "holding_minutes": 30.0,
-                "stop_loss_hit": False,
-                "take_profit_hit": True,
-                "strategy_name": "AI_HYBRID",
-                "market_regime": "NEUTRAL",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "rsi": 54.0,
-                "macd_histogram": 2.1,
-                "ema_fast_slope": 0.08,
-                "ema_slow_slope": 0.03,
-                "adx": 30.0,
-                "vwap_distance": 0.01,
-                "obv_momentum": 1.2,
-                "atr_percent": 1.5,
-                "fear_greed_index": 50.0,
-                "btc_dominance": 55.0,
-                "volume_spike_ratio": 2.0,
-                "trend_strength": 0.75,
-                "volatility_regime": "NORMAL",
-                "target": 1,
-                "reward": 0.36
-            })
-
         df = pd.DataFrame(records)
         df.to_parquet(file_path, index=False)
         logger.info(f"[DATASET_BUILDER] Exported dataset with {len(df)} records to {file_path}")

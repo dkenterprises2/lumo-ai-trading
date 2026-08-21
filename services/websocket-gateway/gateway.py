@@ -1,6 +1,6 @@
 from typing import Dict, Any
-from services.websocket-gateway.connection_registry import connection_registry
-from services.websocket-gateway.pubsub_bridge import pubsub_bridge
+from .connection_registry import connection_registry
+from .pubsub_bridge import pubsub_bridge
 
 class DistributedWebSocketGateway:
     """Horizontally Scalable Distributed WebSocket Gateway Service."""

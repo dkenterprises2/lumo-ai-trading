@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Dict, Any, Optional
+import time
 from loguru import logger
 
 from backend.auth.security import get_current_user, get_optional_current_user
@@ -51,59 +52,66 @@ async def get_exchange_market_data_health(exchange: Optional[str] = "BINANCE", c
 @router.post("/wallet/reset-paper-account")
 @router.post("/trader/reset")
 async def reset_paper_account_endpoint(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
-    """Reset paper trading account balance to default $10,000 USDT and clear all positions & trade history across Spot, Arbitrage & Shadow."""
+    """Comprehensive Full Institutional Platform Reset: Fast non-blocking atomic reset for Spot, Sub-Wallets, Arbitrage, and Positions."""
     from trader import trader_manager
     user_id = current_user.id if current_user else 1
-    trader_inst = await trader_manager.get_trader_for_user(user_id)
-    res = await trader_inst.reset_paper_account_async(default_balance=10000.0)
+    logger.info(f"[RESET_ENDPOINT] Executing Fast Institutional Account Reset for user_id={user_id}...")
 
-    # Reset all active memory trader instances
-    for tr in list(trader_manager.traders.values()):
+    try:
+        # 1. Reset Spot Portfolio & In-Memory Trader State (includes atomic DB reset for this user)
+        trader_inst = await trader_manager.get_trader_for_user(user_id)
+        res = await trader_inst.reset_paper_account_async(default_balance=10000.0)
+
+        # 2. Reset Multi-Capital Sub-Wallets (Funding, Spot, Arbitrage, Shadow)
         try:
-            tr.positions.clear()
-            tr.orders.clear()
-            tr.trade_history.clear()
-            tr.usdt_balance = 10000.0
-            tr.initial_balance = 10000.0
-            tr.auto_bot_enabled = False
-        except Exception:
-            pass
+            from backend.wallet.sub_wallet_manager import sub_wallet_manager
+            sub_wallet_manager.reset()
+        except Exception as sw_err:
+            logger.debug(f"[RESET_SUB_WALLETS_ERR] {sw_err}")
 
-    # 1. Cleanly wipe all database tables for all user partitions
-    try:
-        import sqlite3
-        from config import settings
-        db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
-        conn = sqlite3.connect(db_path, timeout=30.0)
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.execute("PRAGMA busy_timeout=30000;")
-        cur = conn.cursor()
-        cur.execute("DELETE FROM positions;")
-        cur.execute("DELETE FROM orders;")
-        cur.execute("DELETE FROM trades;")
-        cur.execute("DELETE FROM equity_history;")
-        cur.execute("UPDATE portfolio SET usdt_balance = 10000.0, initial_balance = 10000.0, margin_used = 0.0, total_value = 10000.0, auto_bot_enabled = 0;")
-        conn.commit()
-        conn.close()
+        # 3. Reset Arbitrage & Shadow Position Tracker
+        try:
+            from backend.arbitrage.arbitrage_metrics import ArbitrageMetricsTracker
+            ArbitrageMetricsTracker.reset()
+
+            from backend.shadow_trading.shadow_engine import shadow_engine
+            if hasattr(shadow_engine, "position_tracker") and hasattr(shadow_engine.position_tracker, "clear_all"):
+                shadow_engine.position_tracker.clear_all()
+            if hasattr(shadow_engine, "router") and hasattr(shadow_engine.router, "executed_fills"):
+                shadow_engine.router.executed_fills.clear()
+        except Exception as aux_err:
+            logger.debug(f"[RESET_AUX_ENGINES_ERR] {aux_err}")
+
+        return {
+            "status": "success",
+            "message": "Full Institutional Account Reset completed! Spot, Sub-Wallets, Arbitrage, and Orders/Positions have all been cleanly reset to default baseline ($10,000 USDT).",
+            "usdt_balance": 10000.0,
+            "portfolio": res
+        }
+
     except Exception as e:
-        logger.error(f"[RESET_DB_WIPE_ERROR] {e}")
+        logger.error(f"[RESET_ENDPOINT_ERROR] Failed to reset paper account for user_id={user_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "ok": False,
+                "status": "error",
+                "error_code": "RESET_FAILED",
+                "message": f"Failed to reset paper account: {str(e)}"
+            }
+        )
 
-    # 2. Reset Arbitrage Metrics & Routes
-    try:
-        from backend.arbitrage.arbitrage_metrics import ArbitrageMetricsTracker
-        ArbitrageMetricsTracker.reset()
     except Exception as e:
-        logger.error(f"[RESET_ARBITRAGE_ERROR] {e}")
-
-    # 3. Reset Shadow Trading Simulation
-    try:
-        from backend.shadow_trading.shadow_engine import shadow_engine
-        shadow_engine.position_tracker.clear_all()
-        shadow_engine.router.executed_fills.clear()
-    except Exception as e:
-        logger.error(f"[RESET_SHADOW_ERROR] {e}")
-
-    return res
+        logger.error(f"[RESET_ENDPOINT_ERROR] Failed to reset paper account for user_id={user_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "ok": False,
+                "status": "error",
+                "error_code": "RESET_FAILED",
+                "message": f"Failed to reset paper account: {str(e)}"
+            }
+        )
 
 @router.delete("/api/user/delete-account")
 @router.post("/api/user/delete-account")
@@ -128,6 +136,107 @@ async def delete_user_account_endpoint(current_user: Optional[UserModel] = Depen
         logger.error(f"[DELETE_ACCOUNT] DB deletion error for user_id={user_id}: {e}", exc_info=True)
 
     return {"status": "success", "message": "User account and all associated trading data have been permanently deleted."}
+
+from pydantic import BaseModel
+
+class WalletFundsRequest(BaseModel):
+    amount: float
+
+@router.post("/api/wallet/deposit")
+@router.post("/api/user/deposit")
+@router.post("/api/portfolio/deposit")
+@router.post("/wallet/deposit")
+async def deposit_virtual_funds_endpoint(body: WalletFundsRequest, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
+    """Deposit virtual USDT capital into the user's paper trading wallet."""
+    if body.amount <= 0:
+        raise HTTPException(status_code=400, detail="Deposit amount must be greater than zero.")
+
+    from trader import trader_manager
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
+
+    # 1. Update In-Memory Balance & Ledger
+    user_trader.usdt_balance = round(user_trader.usdt_balance + body.amount, 4)
+    user_trader.initial_balance = round(user_trader.initial_balance + body.amount, 4)
+    tx_id = f"TX_{int(time.time() * 1000)}_{len(user_trader.ledger) + 1}"
+    tx = {
+        "tx_id": tx_id,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "tx_type": "DEPOSIT",
+        "amount": round(body.amount, 4),
+        "balance_after": round(user_trader.usdt_balance, 4),
+        "reference_id": "USER_DEPOSIT",
+        "description": f"Virtual Capital Deposit of ${body.amount:,.2f} USDT"
+    }
+    user_trader.ledger.append(tx)
+
+    # 2. Persist to DB directly
+    try:
+        await user_trader.repo.record_wallet_transaction(tx, user_id=user_id)
+    except Exception as ex:
+        logger.warning(f"[DEPOSIT_TX_WARN] {ex}")
+
+    try:
+        await user_trader.save_portfolio_async()
+    except Exception as ex:
+        logger.warning(f"[DEPOSIT_PORT_WARN] {ex}")
+
+    return {
+        "status": "success",
+        "message": f"Successfully deposited ${body.amount:,.2f} USDT virtual funds.",
+        "usdt_balance": user_trader.usdt_balance,
+        "transaction": tx
+    }
+
+@router.post("/api/wallet/withdraw")
+@router.post("/api/user/withdraw")
+@router.post("/api/portfolio/withdraw")
+@router.post("/wallet/withdraw")
+async def withdraw_virtual_funds_endpoint(body: WalletFundsRequest, current_user: Optional[UserModel] = Depends(get_optional_current_user)):
+    """Withdraw virtual USDT capital from the user's paper trading wallet."""
+    if body.amount <= 0:
+        raise HTTPException(status_code=400, detail="Withdrawal amount must be greater than zero.")
+
+    from trader import trader_manager
+    user_id = current_user.id if current_user else 1
+    user_trader = await trader_manager.get_trader_for_user(user_id)
+    if user_trader.usdt_balance < body.amount:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient USDT balance. Available: ${user_trader.usdt_balance:,.2f} USDT, Requested: ${body.amount:,.2f} USDT"
+        )
+
+    # 1. Update In-Memory Balance & Ledger
+    user_trader.usdt_balance = round(max(0.0, user_trader.usdt_balance - body.amount), 4)
+    tx_id = f"TX_{int(time.time() * 1000)}_{len(user_trader.ledger) + 1}"
+    tx = {
+        "tx_id": tx_id,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "tx_type": "WITHDRAWAL",
+        "amount": round(-abs(body.amount), 4),
+        "balance_after": round(user_trader.usdt_balance, 4),
+        "reference_id": "USER_WITHDRAWAL",
+        "description": f"Virtual Capital Withdrawal of ${body.amount:,.2f} USDT"
+    }
+    user_trader.ledger.append(tx)
+
+    # 2. Persist to DB directly
+    try:
+        await user_trader.repo.record_wallet_transaction(tx, user_id=user_id)
+    except Exception as ex:
+        logger.warning(f"[WITHDRAW_TX_WARN] {ex}")
+
+    try:
+        await user_trader.save_portfolio_async()
+    except Exception as ex:
+        logger.warning(f"[WITHDRAW_PORT_WARN] {ex}")
+
+    return {
+        "status": "success",
+        "message": f"Successfully withdrew ${body.amount:,.2f} USDT virtual funds.",
+        "usdt_balance": user_trader.usdt_balance,
+        "transaction": tx
+    }
 
 @router.get("/api/system/resources")
 async def get_system_resources_endpoint(current_user: UserModel = Depends(get_current_user)):

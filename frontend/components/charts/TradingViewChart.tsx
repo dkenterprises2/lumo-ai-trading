@@ -59,7 +59,8 @@ export function TradingViewChart({
   const candlesList = processedCandles;
 
   // Active Position for current symbol
-  const activePosition = positions.find(p => p.symbol === symbol);
+  const positionsArray: Position[] = Array.isArray(positions) ? positions : (positions ? (Object.values(positions) as Position[]) : []);
+  const activePosition: Position | undefined = positionsArray.find((p: Position) => p && p.symbol === symbol);
 
   useEffect(() => {
     if (!containerRef.current || candlesList.length === 0) return;

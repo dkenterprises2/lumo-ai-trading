@@ -269,28 +269,27 @@ class TraderRepository:
 
     async def delete_position(self, pos_id: str, user_id: Optional[int] = None):
         """Remove closed position from DB for user_id."""
-        if user_id is None:
-            logger.error(f"[DB_DELETE_POSITION] Cannot delete position {pos_id}: user_id is None!")
-            return
+        effective_user_id = user_id if user_id is not None else 1
 
-        logger.info(f"[DB_DELETE_POSITION] Attempting delete_position for ID={pos_id}, user_id={user_id}...")
+        logger.info(f"[DB_DELETE_POSITION] Attempting delete_position for ID={pos_id}, user_id={effective_user_id}...")
         max_retries = 5
         for attempt in range(1, max_retries + 1):
             try:
                 async with AsyncSessionLocal() as session:
                     stmt = select(PositionModel).where(
-                        PositionModel.id == pos_id,
-                        PositionModel.user_id == user_id
+                        PositionModel.id == pos_id
                     )
+                    if user_id is not None:
+                        stmt = stmt.where(PositionModel.user_id == user_id)
                     result = await session.execute(stmt)
                     db_pos = result.scalars().first()
                     if db_pos:
                         await session.delete(db_pos)
                         await session.commit()
-                        logger.info(f"[DB_DELETE_POSITION] Successfully deleted position {pos_id} for user_id={user_id}.")
+                        logger.info(f"[DB_DELETE_POSITION] Successfully deleted position {pos_id} for user_id={effective_user_id}.")
                     return
             except Exception as e:
-                logger.warning(f"[DB_DELETE_POSITION_RETRY {attempt}/{max_retries}] Exception deleting position for user_id={user_id}: {e}")
+                logger.warning(f"[DB_DELETE_POSITION_RETRY {attempt}/{max_retries}] Exception deleting position for user_id={effective_user_id}: {e}")
                 if attempt == max_retries:
                     raise
                 await asyncio.sleep(0.1 * (2 ** (attempt - 1)))
@@ -320,6 +319,8 @@ class TraderRepository:
                         "amount": t.amount,
                         "margin_usd": t.margin_usd,
                         "pnl_usd": t.pnl_usd,
+                        "net_pnl": t.pnl_usd,
+                        "pnl": t.pnl_usd,
                         "pnl_pct": t.pnl_pct,
                         "entry_time": t.entry_time,
                         "exit_time": t.exit_time,
@@ -484,68 +485,86 @@ class TraderRepository:
         return history
 
     async def save_equity_point(self, snapshot: Dict[str, Any], user_id: Optional[int] = None):
-        """Append equity history snapshot to DB for user_id."""
+        """Append equity history snapshot to DB for user_id with robust retry handling."""
         effective_user_id = user_id or snapshot.get("user_id")
-        try:
-            async with AsyncSessionLocal() as session:
-                entry = EquityHistoryModel(
-                    user_id=effective_user_id,
-                    timestamp=snapshot['timestamp'],
-                    equity=snapshot['equity'],
-                    wallet=snapshot['wallet'],
-                    margin=snapshot['margin'],
-                    unrealized_pnl=snapshot['unrealized_pnl'],
-                    realized_pnl=snapshot['realized_pnl']
-                )
-                session.add(entry)
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Error saving equity point to DB for user_id={effective_user_id}: {e}")
+        max_retries = 8
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with AsyncSessionLocal() as session:
+                    entry = EquityHistoryModel(
+                        user_id=effective_user_id,
+                        timestamp=snapshot['timestamp'],
+                        equity=snapshot['equity'],
+                        wallet=snapshot['wallet'],
+                        margin=snapshot['margin'],
+                        unrealized_pnl=snapshot['unrealized_pnl'],
+                        realized_pnl=snapshot['realized_pnl']
+                    )
+                    session.add(entry)
+                    await session.commit()
+                    return
+            except Exception as e:
+                if attempt == max_retries:
+                    logger.debug(f"[DB_SAVE_EQUITY] Snapshot skipped after retries: {e}")
+                else:
+                    await asyncio.sleep(0.02 * attempt)
 
     async def log_audit_event(self, event_type: str, details: str, user_id: Optional[int] = None):
-        """Record audit event log in DB for user_id."""
-        try:
-            async with AsyncSessionLocal() as session:
-                log_entry = AuditLogModel(user_id=user_id, event_type=event_type, details=details)
-                session.add(log_entry)
-                await session.commit()
-        except Exception as e:
-            logger.error(f"Error recording audit log to DB for user_id={user_id}: {e}")
+        """Record audit event log in DB for user_id with retry handling."""
+        max_retries = 8
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with AsyncSessionLocal() as session:
+                    log_entry = AuditLogModel(user_id=user_id, event_type=event_type, details=details)
+                    session.add(log_entry)
+                    await session.commit()
+                    return
+            except Exception as e:
+                if attempt == max_retries:
+                    logger.debug(f"[DB_AUDIT_LOG] Audit log skipped after retries: {e}")
+                else:
+                    await asyncio.sleep(0.02 * attempt)
 
     async def save_journal_entry(self, journal_data: Dict[str, Any], user_id: Optional[int] = None):
-        """Save completed trade entry into Trade Journal table."""
+        """Save completed trade entry into Trade Journal table with retry handling."""
         from backend.models.journal import TradeJournalModel
         effective_user_id = user_id or journal_data.get("user_id")
-        try:
-            async with AsyncSessionLocal() as session:
-                entry = TradeJournalModel(
-                    id=str(journal_data.get("id", f"JRN_{int(time.time()*1000)}")),
-                    user_id=effective_user_id,
-                    symbol=journal_data.get("symbol", "BTC/USDT"),
-                    side=journal_data.get("side", "LONG"),
-                    strategy=journal_data.get("strategy", "AI Hybrid"),
-                    confidence=float(journal_data.get("confidence", 75.0)),
-                    market_regime=journal_data.get("market_regime", "BULL_TREND"),
-                    sentiment_score=float(journal_data.get("sentiment_score", 50.0)),
-                    score_breakdown=journal_data.get("score_breakdown", {}),
-                    reasons=journal_data.get("explainable_reasons", journal_data.get("reasons", [])),
-                    indicators=journal_data.get("indicators", {}),
-                    risk_checks=journal_data.get("risk_checks", {}),
-                    entry_price=float(journal_data.get("entry_price", 0.0)),
-                    exit_price=float(journal_data.get("exit_price", 0.0)),
-                    pnl_usd=float(journal_data.get("pnl_usd", 0.0)),
-                    pnl_pct=float(journal_data.get("pnl_pct", 0.0)),
-                    holding_time_seconds=float(journal_data.get("holding_time_seconds", 0.0)),
-                    execution_latency_ms=float(journal_data.get("execution_latency_ms", 0.0)),
-                    entry_time=str(journal_data.get("entry_time", "")),
-                    exit_time=str(journal_data.get("exit_time", "")),
-                    close_reason=str(journal_data.get("close_reason", ""))
-                )
-                session.add(entry)
-                await session.commit()
-                logger.info(f"[DB_JOURNAL_SAVE] Trade journal entry {entry.id} saved for user_id={effective_user_id}.")
-        except Exception as e:
-            logger.error(f"Error saving trade journal entry to DB for user_id={effective_user_id}: {e}")
+        max_retries = 8
+        for attempt in range(1, max_retries + 1):
+            try:
+                async with AsyncSessionLocal() as session:
+                    entry = TradeJournalModel(
+                        id=str(journal_data.get("id", f"JRN_{int(time.time()*1000)}")),
+                        user_id=effective_user_id,
+                        symbol=journal_data.get("symbol", "BTC/USDT"),
+                        side=journal_data.get("side", "LONG"),
+                        strategy=journal_data.get("strategy", "AI Hybrid"),
+                        confidence=float(journal_data.get("confidence", 75.0)),
+                        market_regime=journal_data.get("market_regime", "BULL_TREND"),
+                        sentiment_score=float(journal_data.get("sentiment_score", 50.0)),
+                        score_breakdown=journal_data.get("score_breakdown", {}),
+                        reasons=journal_data.get("explainable_reasons", journal_data.get("reasons", [])),
+                        indicators=journal_data.get("indicators", {}),
+                        risk_checks=journal_data.get("risk_checks", {}),
+                        entry_price=float(journal_data.get("entry_price", 0.0)),
+                        exit_price=float(journal_data.get("exit_price", 0.0)),
+                        pnl_usd=float(journal_data.get("pnl_usd", 0.0)),
+                        pnl_pct=float(journal_data.get("pnl_pct", 0.0)),
+                        holding_time_seconds=float(journal_data.get("holding_time_seconds", 0.0)),
+                        execution_latency_ms=float(journal_data.get("execution_latency_ms", 0.0)),
+                        entry_time=str(journal_data.get("entry_time", "")),
+                        exit_time=str(journal_data.get("exit_time", "")),
+                        close_reason=str(journal_data.get("close_reason", ""))
+                    )
+                    session.add(entry)
+                    await session.commit()
+                    logger.info(f"[DB_JOURNAL_SAVE] Trade journal entry {entry.id} saved for user_id={effective_user_id}.")
+                    return
+            except Exception as e:
+                if attempt == max_retries:
+                    logger.warning(f"Error saving trade journal entry to DB for user_id={effective_user_id}: {e}")
+                else:
+                    await asyncio.sleep(0.05 * (2 ** (attempt - 1)))
 
     async def get_trade_journal(self, user_id: Optional[int] = None, limit: int = 100) -> List[Dict[str, Any]]:
         """Fetch completed trade journal entries for user_id."""
@@ -566,11 +585,86 @@ class TraderRepository:
 
     async def log_timeline_event(self, event_type: str = "GENERIC", details: Optional[Dict[str, Any]] = None, user_id: Optional[int] = None, *args, **kwargs):
         """Log audit timeline event for execution tracking with flexible keyword arguments."""
-        effective_user_id = user_id if user_id is not None else kwargs.get("user_id", getattr(self, "current_user_id", 1))
-        try:
-            logger.info(f"[TIMELINE_EVENT] {event_type} logged for user_id={effective_user_id}: details={details}, kwargs={kwargs}")
-        except Exception as e:
-            logger.error(f"Error logging timeline event: {e}")
+    async def reset_user_paper_account(self, user_id: Optional[int] = None, default_balance: float = 10000.0) -> Dict[str, Any]:
+        """Atomically reset paper trading portfolio, positions, orders, trade history, and ledger in DB for a specific user_id."""
+        effective_user_id = user_id if user_id is not None else 1
+        now_ts = time.time()
+        now_str = time.strftime("%Y-%m-%d %H:%M:%S")
+        tx_id = f"TX_{int(now_ts * 1000)}_RESET"
+
+        logger.info(f"[DB_RESET_ACCOUNT] Starting atomic paper account reset for user_id={effective_user_id} with starting balance=${default_balance:.2f}")
+
+        async with AsyncSessionLocal() as session:
+            try:
+                # 1. Delete open positions for this user (or legacy rows where user_id IS NULL if user_id == 1)
+                if effective_user_id == 1:
+                    await session.execute(delete(PositionModel).where((PositionModel.user_id == 1) | (PositionModel.user_id.is_(None))))
+                    await session.execute(delete(OrderModel).where((OrderModel.user_id == 1) | (OrderModel.user_id.is_(None))))
+                    await session.execute(delete(TradeModel).where((TradeModel.user_id == 1) | (TradeModel.user_id.is_(None))))
+                    await session.execute(delete(EquityHistoryModel).where((EquityHistoryModel.user_id == 1) | (EquityHistoryModel.user_id.is_(None))))
+                    await session.execute(delete(WalletTransactionModel).where((WalletTransactionModel.user_id == 1) | (WalletTransactionModel.user_id.is_(None))))
+                else:
+                    await session.execute(delete(PositionModel).where(PositionModel.user_id == effective_user_id))
+                    await session.execute(delete(OrderModel).where(OrderModel.user_id == effective_user_id))
+                    await session.execute(delete(TradeModel).where(TradeModel.user_id == effective_user_id))
+                    await session.execute(delete(EquityHistoryModel).where(EquityHistoryModel.user_id == effective_user_id))
+                    await session.execute(delete(WalletTransactionModel).where(WalletTransactionModel.user_id == effective_user_id))
+
+                # 2. Insert single clean opening balance ledger transaction
+                init_tx = WalletTransactionModel(
+                    user_id=effective_user_id,
+                    tx_id=tx_id,
+                    timestamp=now_str,
+                    tx_type="DEPOSIT",
+                    amount=float(default_balance),
+                    balance_after=float(default_balance),
+                    reference_id="RESET_ACCOUNT",
+                    description=f"Paper Account Reset to Default ${default_balance:,.2f} USDT"
+                )
+                session.add(init_tx)
+
+                # 3. Reset Portfolio state for this user while preserving configuration preferences
+                port_stmt = select(PortfolioModel).where(PortfolioModel.user_id == effective_user_id)
+                port_res = await session.execute(port_stmt)
+                port = port_res.scalars().first()
+                if not port and effective_user_id == 1:
+                    port_res_null = await session.execute(select(PortfolioModel).where(PortfolioModel.user_id.is_(None)))
+                    port = port_res_null.scalars().first()
+
+                if port:
+                    port.usdt_balance = float(default_balance)
+                    port.initial_balance = float(default_balance)
+                    port.margin_used = 0.0
+                    port.total_value = float(default_balance)
+                    port.auto_bot_enabled = False
+                else:
+                    port = PortfolioModel(
+                        user_id=effective_user_id,
+                        usdt_balance=float(default_balance),
+                        initial_balance=float(default_balance),
+                        margin_used=0.0,
+                        total_value=float(default_balance),
+                        auto_bot_enabled=False
+                    )
+                    session.add(port)
+
+                await session.commit()
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"[DB_RESET_ACCOUNT_ERROR] {e}")
+                raise e
+
+        logger.info(f"[DB_RESET_ACCOUNT] Atomic reset completed successfully for user_id={effective_user_id}")
+        return {
+            "ok": True,
+            "status": "success",
+            "message": f"Paper trading account reset successfully to ${default_balance:,.2f} USDT.",
+            "user_id": effective_user_id,
+            "starting_balance_usdt": float(default_balance),
+            "open_positions": 0,
+            "open_orders": 0
+        }
+
 
 
 

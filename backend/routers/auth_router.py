@@ -18,6 +18,7 @@ from backend.auth.security import (
     create_refresh_token,
     decode_token,
     get_current_user,
+    get_optional_current_user,
     get_db,
     ensure_utc,
     MAX_FAILED_LOGIN_ATTEMPTS,

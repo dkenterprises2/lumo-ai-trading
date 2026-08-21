@@ -136,11 +136,15 @@ class AITradingStrategy:
         # ---------------------------------------------------------------------
         market_regime, regime_desc = MarketRegimeDetector.detect_regime(current_price, technical_data, sentiment_summary)
         
-        try:
-            from backend.learning.strategy_weight_loader import strategy_weight_loader
-            dynamic_weights = strategy_weight_loader.get_active_weights_sync(strategy_name="AI_HYBRID", market_regime=market_regime)
-        except Exception:
-            dynamic_weights = None
+        global _CACHED_WEIGHT_LOADER
+        if "_CACHED_WEIGHT_LOADER" not in globals():
+            try:
+                from backend.learning.strategy_weight_loader import strategy_weight_loader as _swl
+                _CACHED_WEIGHT_LOADER = _swl
+            except Exception:
+                _CACHED_WEIGHT_LOADER = None
+
+        dynamic_weights = _CACHED_WEIGHT_LOADER.get_active_weights_sync(strategy_name="AI_HYBRID", market_regime=market_regime) if _CACHED_WEIGHT_LOADER else None
 
         regime_base_weights = MarketRegimeDetector.REGIME_WEIGHTS.get(market_regime, self.default_weights)
         active_weights = dynamic_weights or regime_base_weights
@@ -185,21 +189,24 @@ class AITradingStrategy:
             ema_score = 95.0
             ema_label = f"Strong Bullish Alignment (Price > EMA20 ${ema_20:,.2f} > EMA50 ${ema_50:,.2f} > EMA200 ${ema_200:,.2f})"
         elif current_price > ema_20 and ema_20 > ema_50:
-            ema_score = 80.0
+            ema_score = 82.0
             ema_label = f"Bullish Trend (Price ${current_price:,.2f} > EMA20 ${ema_20:,.2f} > EMA50 ${ema_50:,.2f})"
+        elif current_price >= ema_50 and ema_50 > ema_200:
+            ema_score = 75.0
+            ema_label = f"Bullish Pullback Support (Price near EMA50 ${ema_50:,.2f} in Macro Uptrend)"
         elif current_price < ema_20 and ema_20 < ema_50 and ema_50 < ema_200:
-            ema_score = 5.0
+            ema_score = 10.0
             ema_label = f"Strong Bearish Alignment (Price < EMA20 ${ema_20:,.2f} < EMA50 ${ema_50:,.2f} < EMA200 ${ema_200:,.2f})"
         elif current_price < ema_20 and ema_20 < ema_50:
-            ema_score = 20.0
+            ema_score = 25.0
             ema_label = f"Bearish Trend (Price ${current_price:,.2f} < EMA20 ${ema_20:,.2f} < EMA50 ${ema_50:,.2f})"
         else:
-            ema_score = 50.0
-            ema_label = f"Consolidating / Neutral EMAs (Price ${current_price:,.2f})"
+            ema_score = 55.0
+            ema_label = f"Consolidating Accumulation (Price ${current_price:,.2f})"
 
-        if ema_score >= 80.0:
+        if ema_score >= 75.0:
             explainable_reasons.append(f"EMA Alignment: {ema_label}.")
-        elif ema_score <= 20.0:
+        elif ema_score <= 25.0:
             explainable_reasons.append(f"EMA Alignment: {ema_label}.")
 
         # --- Factor B: MACD Momentum ---
@@ -219,21 +226,22 @@ class AITradingStrategy:
 
         # --- Factor C: RSI Oscillator ---
         if rsi <= 30.0:
-            rsi_score = 90.0
+            rsi_score = 92.0
             rsi_label = f"Oversold Reversal Zone (RSI {rsi:.1f} <= 30)"
             explainable_reasons.append(f"RSI Oscillator: Deeply oversold at {rsi:.1f}, indicating high probability of bullish mean reversion.")
         elif rsi <= 45.0:
-            rsi_score = 70.0
+            rsi_score = 75.0
             rsi_label = f"Bullish Recovery Zone (RSI {rsi:.1f})"
-        elif rsi >= 70.0:
+            explainable_reasons.append(f"RSI Oscillator: Healthy pullback zone at {rsi:.1f}, favorable for dip accumulation.")
+        elif rsi >= 75.0:
             rsi_score = 10.0
-            rsi_label = f"Overbought Exhaustion Zone (RSI {rsi:.1f} >= 70)"
+            rsi_label = f"Overbought Exhaustion Zone (RSI {rsi:.1f} >= 75)"
             explainable_reasons.append(f"RSI Oscillator: Overbought condition at {rsi:.1f}, signaling potential top exhaustion.")
-        elif rsi >= 55.0:
-            rsi_score = 30.0
+        elif rsi >= 60.0:
+            rsi_score = 40.0
             rsi_label = f"Bearish Pressure Zone (RSI {rsi:.1f})"
         else:
-            rsi_score = 50.0
+            rsi_score = 55.0
             rsi_label = f"Neutral RSI ({rsi:.1f})"
 
         # --- Factor D: ADX & Trend Strength ---
@@ -253,7 +261,7 @@ class AITradingStrategy:
 
         # --- Factor E: VWAP Relative Position ---
         vwap_diff_pct = ((current_price - vwap) / (vwap + 1e-9)) * 100.0
-        if vwap_diff_pct >= 0.5:
+        if vwap_diff_pct >= 0.3:
             vwap_score = min(90.0, 65.0 + (vwap_diff_pct * 10.0))
             vwap_label = f"Price Above VWAP (+{vwap_diff_pct:.2f}% vs ${vwap:,.2f})"
             explainable_reasons.append(f"VWAP Benchmark: Price (${current_price:,.2f}) is trading above VWAP (${vwap:,.2f}), favoring buyer control.")
@@ -262,7 +270,7 @@ class AITradingStrategy:
             vwap_label = f"Price Below VWAP ({vwap_diff_pct:.2f}% vs ${vwap:,.2f})"
             explainable_reasons.append(f"VWAP Benchmark: Price (${current_price:,.2f}) is trading below VWAP (${vwap:,.2f}), favoring seller control.")
         else:
-            vwap_score = 50.0
+            vwap_score = 55.0
             vwap_label = f"Price At VWAP (${vwap:,.2f})"
 
         # --- Factor F: OBV Volume Flow ---
@@ -271,7 +279,7 @@ class AITradingStrategy:
             obv_label = f"Institutional Accumulation (OBV {obv:,.0f} > 20 EMA {obv_ema:,.0f})"
             explainable_reasons.append("On-Balance Volume (OBV): Volume expansion above 20 EMA confirms institutional accumulation.")
         elif obv < obv_ema:
-            obv_score = 15.0
+            obv_score = 25.0
             obv_label = f"Capital Distribution (OBV {obv:,.0f} < 20 EMA {obv_ema:,.0f})"
             explainable_reasons.append("On-Balance Volume (OBV): Volume contraction below 20 EMA indicates capital distribution.")
         else:
@@ -285,7 +293,7 @@ class AITradingStrategy:
                 vol_label = f"Bullish Volume Spike ({vol_spike_ratio:.1f}x 20MA Avg)"
                 explainable_reasons.append(f"Volume Surge: High volume spike of {vol_spike_ratio:.1f}x relative to 20 MA validates strong buying conviction.")
             else:
-                vol_score = 10.0
+                vol_score = 15.0
                 vol_label = f"Bearish Volume Spike ({vol_spike_ratio:.1f}x 20MA Avg)"
                 explainable_reasons.append(f"Volume Surge: High volume spike of {vol_spike_ratio:.1f}x relative to 20 MA validates heavy selling pressure.")
         else:
@@ -293,9 +301,9 @@ class AITradingStrategy:
             vol_label = f"Normal Volume ({vol_spike_ratio:.1f}x 20MA Avg)"
 
         # --- Factor H: ATR Volatility Sizing ---
-        atr_pct = (atr / current_price) * 100.0
-        if 1.0 <= atr_pct <= 3.5:
-            atr_score = 70.0
+        atr_pct = (atr / (current_price + 1e-9)) * 100.0
+        if 0.8 <= atr_pct <= 3.5:
+            atr_score = 75.0
             atr_label = f"Optimal Trading Volatility (ATR ${atr:,.2f} / {atr_pct:.1f}%)"
         else:
             atr_score = 50.0
@@ -307,20 +315,73 @@ class AITradingStrategy:
         w_sum = sum(active_weights.values()) or 1.0
         norm_weights = {k: v / w_sum for k, v in active_weights.items()}
 
+        w_ema = norm_weights.get("ema_trend", norm_weights.get("ema_weight", 0.20))
+        w_macd = norm_weights.get("macd_momentum", norm_weights.get("macd_weight", 0.20))
+        w_rsi = norm_weights.get("rsi_oscillator", norm_weights.get("rsi_weight", 0.15))
+        w_adx = norm_weights.get("adx_trend_strength", norm_weights.get("adx_weight", 0.15))
+        w_vwap = norm_weights.get("vwap_position", norm_weights.get("vwap_weight", 0.10))
+        w_obv = norm_weights.get("obv_flow", norm_weights.get("obv_weight", 0.10))
+        w_vol = norm_weights.get("volume_spike", norm_weights.get("volume_weight", 0.05))
+        w_atr = norm_weights.get("atr_volatility", norm_weights.get("atr_weight", 0.05))
+
         weighted_tech_score = (
-            (ema_score * norm_weights.get("ema_trend", 0.0)) +
-            (macd_score * norm_weights.get("macd_momentum", 0.0)) +
-            (rsi_score * norm_weights.get("rsi_oscillator", 0.0)) +
-            (adx_score * norm_weights.get("adx_trend_strength", 0.0)) +
-            (vwap_score * norm_weights.get("vwap_position", 0.0)) +
-            (obv_score * norm_weights.get("obv_flow", 0.0)) +
-            (vol_score * norm_weights.get("volume_spike", 0.0)) +
-            (atr_score * norm_weights.get("atr_volatility", 0.0))
+            (ema_score * w_ema) +
+            (macd_score * w_macd) +
+            (rsi_score * w_rsi) +
+            (adx_score * w_adx) +
+            (vwap_score * w_vwap) +
+            (obv_score * w_obv) +
+            (vol_score * w_vol) +
+            (atr_score * w_atr)
         )
         weighted_tech_score = round(max(0.0, min(100.0, weighted_tech_score)), 1)
 
-        if "technical_score" in technical_data and technical_data.get("technical_score") != 50.0 and len(explainable_reasons) <= 1:
-            weighted_tech_score = float(technical_data["technical_score"])
+        # ---------------------------------------------------------------------
+        # 3.5 SHADOW AUTONOMOUS LEARNER ALPHA INJECTION (Paper/Shadow Alpha Bridge)
+        # ---------------------------------------------------------------------
+        champion_applied = False
+        champion_name = ""
+        try:
+            global _CACHED_SHADOW_LEARNER
+            if "_CACHED_SHADOW_LEARNER" not in globals():
+                try:
+                    from backend.shadow_trading.shadow_autonomous_learner import shadow_autonomous_learner as _sal
+                    _CACHED_SHADOW_LEARNER = _sal
+                except Exception:
+                    _CACHED_SHADOW_LEARNER = None
+
+            champ = _CACHED_SHADOW_LEARNER.get_champion_for_symbol(symbol) if _CACHED_SHADOW_LEARNER else None
+            if champ and champ.get("win_rate_pct", 0) >= 50.0:
+                c_params = champ.get("parameters", {})
+                c_name = champ.get("technique_name", "Autonomous Alpha")
+                c_wr = champ.get("win_rate_pct", 60.0)
+                c_pnl = champ.get("net_pnl", 0.0)
+
+                # Check if market conditions match the learned champion technique
+                if "Pullback" in c_name and (current_price >= ema_50 or rsi <= 55.0):
+                    weighted_tech_score = min(98.0, weighted_tech_score + 14.0)
+                    champion_applied = True
+                    champion_name = c_name
+                elif "Breakout" in c_name and (current_price > bb_upper or vol_spike_ratio >= 1.5):
+                    weighted_tech_score = min(98.0, weighted_tech_score + 16.0)
+                    champion_applied = True
+                    champion_name = c_name
+                elif "Reversion" in c_name and rsi <= 42.0:
+                    weighted_tech_score = min(98.0, weighted_tech_score + 15.0)
+                    champion_applied = True
+                    champion_name = c_name
+                elif "Flow" in c_name and current_price >= vwap:
+                    weighted_tech_score = min(98.0, weighted_tech_score + 12.0)
+                    champion_applied = True
+                    champion_name = c_name
+
+                if champion_applied:
+                    explainable_reasons.insert(1, (
+                        f"[SHADOW_ALPHA_CHAMPION] Technique: '{c_name}' (WinRate: {c_wr}%, PnL: +${c_pnl:.2f}) "
+                        f"Autonomous parameters actively boosted signal setup for {symbol}."
+                    ))
+        except Exception as champ_err:
+            pass
 
         # Strategy-specific adjustments
         if strategy_name == "Trend Following":
@@ -329,52 +390,52 @@ class AITradingStrategy:
             breakout_boost = 15.0 if current_price > bb_upper else (-15.0 if current_price < bb_lower else 0.0)
             composite_score = min(100.0, max(0.0, weighted_tech_score + breakout_boost))
         elif strategy_name == "Scalping":
-            composite_score = (100.0 - rsi) if rsi < 40 else (100.0 - rsi if rsi > 60 else 50.0)
+            composite_score = (100.0 - rsi) if rsi < 40 else (100.0 - rsi if rsi > 60 else 55.0)
         elif strategy_name == "Grid" or strategy_name == "DCA":
-            composite_score = 55.0 if current_price < vwap else 45.0
+            composite_score = 60.0 if current_price < vwap else 50.0
         else: # AI Hybrid (Default)
             composite_score = (weighted_tech_score * 0.70) + (sentiment_score * 0.30)
 
         composite_score = round(max(0.0, min(100.0, composite_score)), 1)
 
         # ---------------------------------------------------------------------
-        # 4. RISK MODE THRESHOLDS & DIRECTION DETERMINATION
+        # 4. RISK MODE THRESHOLDS & BALANCED DIRECTION DETERMINATION
         # ---------------------------------------------------------------------
         if risk_mode == "Conservative":
-            buy_thresh, sell_thresh = 70.0, 30.0
+            buy_thresh, sell_thresh = 65.0, 28.0
             stop_loss_dist = atr * 1.5
             take_profit_dist = atr * 3.0
         elif risk_mode == "Aggressive":
-            buy_thresh, sell_thresh = 58.0, 42.0
+            buy_thresh, sell_thresh = 52.0, 38.0
             stop_loss_dist = atr * 2.5
             take_profit_dist = atr * 5.0
-        else: # Moderate
-            buy_thresh, sell_thresh = 62.0, 38.0
+        else: # Moderate (Default)
+            buy_thresh, sell_thresh = 56.0, 34.0
             stop_loss_dist = atr * 2.0
             take_profit_dist = atr * 4.0
 
-        if composite_score >= 78.0:
+        if composite_score >= 75.0:
             action = "STRONG_BUY"
             direction = "LONG"
-            confidence = min(99.0, composite_score + 3.0)
+            confidence = round(composite_score, 1)
         elif composite_score >= buy_thresh:
             action = "BUY"
             direction = "LONG"
-            confidence = composite_score
-        elif composite_score <= 22.0:
+            confidence = round(composite_score, 1)
+        elif composite_score <= 20.0 and minus_di > (plus_di * 1.5):
             action = "STRONG_SELL"
             direction = "SHORT"
-            confidence = min(99.0, (100.0 - composite_score) + 3.0)
-        elif composite_score <= sell_thresh:
+            confidence = round(100.0 - composite_score, 1)
+        elif composite_score <= sell_thresh and minus_di > plus_di:
             action = "SELL"
             direction = "SHORT"
             confidence = round(100.0 - composite_score, 1)
         else:
             action = "HOLD"
             direction = "NEUTRAL"
-            confidence = round(50.0 + abs(composite_score - 50.0), 1)
+            confidence = 50.0
 
-        confidence = round(max(0.0, min(99.0, confidence)), 1)
+        confidence = round(max(40.0, min(95.0, confidence)), 1)
 
         # ---------------------------------------------------------------------
         def round_price(val: float) -> float:

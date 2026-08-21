@@ -60,65 +60,69 @@ class MarketDataEngine:
         # Circuit breakers for cloud restrictions & rate limits
         self.binance_disabled: bool = True
         self.last_binance_error: float = time.time()
-        self.coingecko_disabled_until: float = time.time() + 86400.0
-
         # Non-blocking SQLite persistence queue & background worker thread
         self._persist_queue = queue.Queue()
-        self._persist_thread = threading.Thread(target=self._db_worker, daemon=True)
+        self._persist_thread = threading.Thread(target=self._db_worker, daemon=True, name="MarketDataDBWorker")
         self._persist_thread.start()
+
+        # Dedicated background live ticker polling worker thread
+        self._ticker_running = True
+        self._ticker_thread = threading.Thread(target=self._live_ticker_worker, daemon=True, name="LiveMarketTickerThread")
+        self._ticker_thread.start()
 
         # Baseline reference table (used ONLY as emergency fallback for un-traded symbols)
         self.emergency_baselines = {
-            "BTC/USDT": ("bitcoin", 118450.0),
-            "ETH/USDT": ("ethereum", 3410.0),
-            "SOL/USDT": ("solana", 182.0),
-            "BNB/USDT": ("binancecoin", 582.0),
+            "BTC/USDT": ("bitcoin", 72200.0),
+            "ETH/USDT": ("ethereum", 3150.0),
+            "SOL/USDT": ("solana", 185.0),
+            "BNB/USDT": ("binancecoin", 580.0),
             "XRP/USDT": ("ripple", 0.60),
             "ADA/USDT": ("cardano", 0.45),
-            "DOGE/USDT": ("dogecoin", 0.124),
-            "AVAX/USDT": ("avalanche-2", 28.15),
-            "LINK/USDT": ("chainlink", 15.20),
-            "ARB/USDT": ("arbitrum", 0.82),
-            "SUI/USDT": ("sui", 1.84),
-            "INJ/USDT": ("injective-protocol", 22.50),
-            "TIA/USDT": ("celestia", 5.34),
-            "FET/USDT": ("artificial-superintelligence-alliance", 1.40),
+            "DOGE/USDT": ("dogecoin", 0.0792),
+            "AVAX/USDT": ("avalanche-2", 7.02),
+            "LINK/USDT": ("chainlink", 10.66),
+            "ARB/USDT": ("arbitrum", 0.52),
+            "SUI/USDT": ("sui", 0.736),
+            "INJ/USDT": ("injective-protocol", 18.50),
+            "TIA/USDT": ("celestia", 4.34),
+            "FET/USDT": ("artificial-superintelligence-alliance", 1.10),
             "PEPE/USDT": ("pepe", 0.00000850),
             "SHIB/USDT": ("shiba-inu", 0.00001420),
             "FLOKI/USDT": ("floki", 0.00002030),
             "BONK/USDT": ("bonk", 0.00001850),
-            "MATIC/USDT": ("matic-network", 0.42),
-            "DOT/USDT": ("polkadot", 4.50),
-            "NEAR/USDT": ("near", 4.80),
-            "ATOM/USDT": ("cosmos", 4.60),
-            "APT/USDT": ("aptos", 8.20),
-            "OP/USDT": ("optimism", 1.45),
+            "MATIC/USDT": ("matic-network", 0.38),
+            "DOT/USDT": ("polkadot", 0.836),
+            "NEAR/USDT": ("near", 3.80),
+            "ATOM/USDT": ("cosmos", 1.497),
+            "APT/USDT": ("aptos", 6.20),
+            "OP/USDT": ("optimism", 0.0941),
             "LTC/USDT": ("litecoin", 68.0),
-            "ETC/USDT": ("ethereum-classic", 19.5),
+            "ETC/USDT": ("ethereum-classic", 18.5),
             "XLM/USDT": ("stellar", 0.098),
-            "FIL/USDT": ("filecoin", 3.80),
-            "UNI/USDT": ("uniswap", 7.20),
-            "ICP/USDT": ("internet-computer", 7.80),
-            "RNDR/USDT": ("render-token", 5.60),
-            "AAVE/USDT": ("aave", 152.0),
-            "MKR/USDT": ("maker", 1850.0),
-            "SNX/USDT": ("synthetix-network-token", 1.40),
-            "ALGO/USDT": ("algorand", 0.135),
-            "THETA/USDT": ("theta-token", 1.25),
-            "AXS/USDT": ("axie-infinity", 4.80),
-            "EGLD/USDT": ("elrond-erd-2", 28.0),
-            "EOS/USDT": ("eos", 0.52),
-            "FLOW/USDT": ("flow", 0.58),
+            "FIL/USDT": ("filecoin", 3.40),
+            "UNI/USDT": ("uniswap", 6.20),
+            "ICP/USDT": ("internet-computer", 7.20),
+            "RNDR/USDT": ("render-token", 4.60),
+            "AAVE/USDT": ("aave", 142.0),
+            "MKR/USDT": ("maker", 1750.0),
+            "SNX/USDT": ("synthetix-network-token", 1.20),
+            "ALGO/USDT": ("algorand", 0.0866),
+            "THETA/USDT": ("theta-token", 0.1608),
+            "AXS/USDT": ("axie-infinity", 0.943),
+            "EGLD/USDT": ("elrond-erd-2", 2.943),
+            "EOS/USDT": ("eos", 0.7799),
+            "FLOW/USDT": ("flow", 0.02881),
             "KAVA/USDT": ("kava", 0.32),
-            "MINA/USDT": ("mina-protocol", 0.54),
-            "QNT/USDT": ("quant-network", 72.0),
-            "RUNE/USDT": ("thorchain", 4.20),
+            "MINA/USDT": ("mina-protocol", 0.0443),
+            "QNT/USDT": ("quant-network", 61.91),
+            "RUNE/USDT": ("thorchain", 0.442),
             "WOO/USDT": ("woo-network", 0.185),
-            "CRV/USDT": ("curve-dao-token", 0.28),
+            "CRV/USDT": ("curve-dao-token", 0.2666),
             "LDO/USDT": ("lido-dao", 1.15),
             "GRT/USDT": ("the-graph", 0.155),
             "FTM/USDT": ("fantom", 0.65),
-            "SAND/USDT": ("the-sandbox", 0.28)
+            "SAND/USDT": ("the-sandbox", 0.04248),
+            "MANA/USDT": ("decentraland", 0.0687)
         }
 
         # Initialize persistent market_prices table on engine startup
@@ -127,12 +131,8 @@ class MarketDataEngine:
     def _init_db_table(self):
         """Create persistent market_prices SQLite table if it does not exist."""
         try:
-            from config import settings
-            db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-            conn = sqlite3.connect(db_file, timeout=30.0)
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA busy_timeout=30000;")
-            conn.execute("PRAGMA synchronous=NORMAL;")
+            from backend.database.db_config import create_sqlite_connection
+            conn = create_sqlite_connection(timeout=60.0)
             cursor = conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS market_prices (
@@ -148,20 +148,14 @@ class MarketDataEngine:
             logger.error(f"[DB_MARKET_PRICES_INIT_ERROR] {e}")
 
     def _db_worker(self):
-        """Background thread worker with batch draining & exception recovery for SQLite persistence."""
-        from config import settings
-        db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+        """Background thread worker with periodic batch flushing to prevent SQLite write lock congestion."""
+        from backend.database.db_config import create_sqlite_connection
         should_stop = False
 
         while not should_stop:
             try:
-                item = self._persist_queue.get()
-                if item is None:
-                    self._persist_queue.task_done()
-                    break
-
-                # Batch drain pending items to achieve high throughput
-                items = [item]
+                time.sleep(5.0)
+                items = {}
                 while not self._persist_queue.empty():
                     try:
                         next_item = self._persist_queue.get_nowait()
@@ -169,21 +163,20 @@ class MarketDataEngine:
                             should_stop = True
                             self._persist_queue.task_done()
                             break
-                        items.append(next_item)
+                        # Keep only the latest price per symbol
+                        items[next_item[0]] = next_item
+                        self._persist_queue.task_done()
                     except queue.Empty:
                         break
 
                 if items:
                     written_successfully = False
-                    for attempt in range(1, 4):
+                    for attempt in range(1, 6):
                         try:
-                            conn = sqlite3.connect(db_file, timeout=30.0)
-                            conn.execute("PRAGMA journal_mode=WAL;")
-                            conn.execute("PRAGMA busy_timeout=30000;")
-                            conn.execute("PRAGMA synchronous=NORMAL;")
+                            conn = create_sqlite_connection(timeout=60.0)
                             cursor = conn.cursor()
                             now_str = time.strftime("%Y-%m-%d %H:%M:%S")
-                            batch_data = [(sym, float(p), str(src), now_str) for (sym, p, src) in items]
+                            batch_data = [(sym, float(p), str(src), now_str) for (sym, p, src) in items.values()]
 
                             cursor.executemany("""
                                 INSERT INTO market_prices (symbol, price, source, updated_at)
@@ -201,23 +194,87 @@ class MarketDataEngine:
                             written_successfully = True
                             break
                         except sqlite3.OperationalError as locked_err:
-                            if "locked" in str(locked_err).lower() and attempt < 3:
-                                time.sleep(0.2 * attempt)
+                            if "locked" in str(locked_err).lower() or "busy" in str(locked_err).lower():
+                                time.sleep(0.1 * attempt)
                             else:
-                                raise locked_err
-                        except Exception as db_err:
-                            raise db_err
+                                break
+                        except Exception:
+                            break
 
                     if not written_successfully:
                         with self._lock:
                             self.failed_writes += len(items)
 
-                    for _ in range(len(items)):
-                        self._persist_queue.task_done()
-
             except Exception as outer_e:
                 logger.warning(f"[DB_WORKER_RETRY] Batch persistence write failed after retries: {outer_e}")
 
+
+    def _live_ticker_worker(self):
+        """Dedicated background thread worker continuously refreshing all live market prices in batch."""
+        # Initial immediate refresh
+        self._refresh_all_prices_batch()
+        while getattr(self, "_ticker_running", True):
+            try:
+                time.sleep(1.0)
+                self._refresh_all_prices_batch()
+            except Exception as e:
+                logger.debug(f"[LIVE_TICKER_WORKER_ERROR] {e}")
+                time.sleep(2.0)
+
+    def _refresh_all_prices_batch(self) -> bool:
+        """Batch-fetches all crypto market prices from Binance in a single fast HTTP call."""
+        now = time.time()
+        try:
+            resp = requests.get("https://api.binance.com/api/v3/ticker/price", timeout=2.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                price_map = {}
+                for item in data:
+                    raw_sym = item.get("symbol", "")
+                    raw_p = item.get("price")
+                    if raw_p:
+                        try:
+                            price_map[raw_sym] = float(raw_p)
+                        except (ValueError, TypeError):
+                            pass
+
+                with self._lock:
+                    for sym, (_, fallback_p) in self.emergency_baselines.items():
+                        clean_sym = sym.replace("/", "")
+                        if clean_sym in price_map:
+                            p = price_map[clean_sym]
+                            if is_valid_price(p):
+                                self.price_cache[sym] = p
+                                self.price_cache_time[sym] = now
+                                self.price_source_cache[sym] = "BINANCE_BATCH"
+                                if sym in self.frozen_symbols:
+                                    self.frozen_symbols.remove(sym)
+                    self.binance_disabled = False
+                return True
+        except Exception as e:
+            logger.debug(f"[BINANCE_BATCH_ERROR] {e}")
+
+        # If Binance batch fails, ensure all symbols have a valid fallback in cache
+        with self._lock:
+            for sym, (_, fallback_p) in self.emergency_baselines.items():
+                if sym not in self.price_cache or not is_valid_price(self.price_cache[sym]):
+                    self.price_cache[sym] = fallback_p
+                    self.price_cache_time[sym] = now
+                    self.price_source_cache[sym] = "EMERGENCY"
+        return False
+
+    def fetch_all_prices(self) -> Dict[str, float]:
+        """Returns instantaneous snapshot of all live prices in sub-0.01ms memory lookup."""
+        now = time.time()
+        result = {}
+        with self._lock:
+            for sym, p in self.price_cache.items():
+                if is_valid_price(p):
+                    result[sym] = p
+            for sym, (_, fallback_p) in self.emergency_baselines.items():
+                if sym not in result:
+                    result[sym] = fallback_p
+        return result
 
     def _persist_market_price(self, symbol: str, price: float, source: str):
         """Enqueue market price update for non-blocking background DB write (O(1) time)."""
@@ -229,10 +286,13 @@ class MarketDataEngine:
             logger.debug(f"[PERSIST_QUEUE_ERROR] {symbol}: {e}")
 
     def stop_worker(self, timeout: float = 5.0):
-        """Gracefully flush all pending queue writes and terminate worker thread."""
+        """Gracefully flush all pending queue writes and terminate worker threads."""
         try:
+            self._ticker_running = False
             self._persist_queue.put_nowait(None)
             self._persist_thread.join(timeout=timeout)
+            if hasattr(self, "_ticker_thread") and self._ticker_thread.is_alive():
+                self._ticker_thread.join(timeout=timeout)
         except Exception as e:
             logger.error(f"[STOP_WORKER_ERROR] {e}")
 
@@ -240,9 +300,8 @@ class MarketDataEngine:
     def _load_db_market_price(self, symbol: str) -> Optional[float]:
         """Load last valid market price from persistent SQLite market_prices table."""
         try:
-            from config import settings
-            db_file = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-            conn = sqlite3.connect(db_file)
+            from backend.database.db_config import create_sqlite_connection
+            conn = create_sqlite_connection(read_only=True, timeout=60.0)
             cursor = conn.cursor()
             row = cursor.execute("SELECT price FROM market_prices WHERE symbol = ?", (symbol,)).fetchone()
             conn.close()
@@ -283,7 +342,7 @@ class MarketDataEngine:
             return db_price
 
         # Emergency Baseline
-        _, default_price = self.emergency_baselines.get(symbol, ("bitcoin", 65000.0))
+        _, default_price = self.emergency_baselines.get(symbol, ("unknown", 1.0))
         if is_valid_price(default_price):
             return default_price
 
@@ -342,12 +401,12 @@ class MarketDataEngine:
         symbol = normalize_symbol(symbol)
         now = time.time()
 
-        # Step 6: 1.0-second TTL Memory Cache check (bypassed if force_refresh=True for instant news reaction)
+        # Step 6: Memory Cache check (bypassed if force_refresh=True for instant news reaction)
         if not force_refresh:
             with self._lock:
-                if symbol in self.price_cache and (now - self.price_cache_time.get(symbol, 0)) < 1.0:
+                if symbol in self.price_cache and is_valid_price(self.price_cache[symbol]):
                     cached_val = self.price_cache[symbol]
-                    if is_valid_price(cached_val):
+                    if (now - self.price_cache_time.get(symbol, 0)) < 30.0:
                         return cached_val
 
         binance_price: Optional[float] = None
@@ -383,7 +442,7 @@ class MarketDataEngine:
                 self.last_binance_error = now
 
         # 2. Secondary: CoinGecko REST
-        coin_id, default_price = self.emergency_baselines.get(symbol, ("bitcoin", 65000.0))
+        coin_id, default_price = self.emergency_baselines.get(symbol, (symbol.split("/")[0].lower(), 1.0))
         if now > self.coingecko_disabled_until:
             try:
                 url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
@@ -497,13 +556,13 @@ class MarketDataEngine:
 
 
     def fetch_ohlcv(self, symbol: str, timeframe: str = "1h", limit: int = 40) -> pd.DataFrame:
-        """Fetch OHLCV candlestick data with 15-second TTL cache."""
+        """Fetch OHLCV candlestick data with 30-second TTL cache."""
         cache_key = f"{symbol}_{timeframe}_{limit}"
         now = time.time()
 
         if cache_key in self.ohlcv_cache:
             cache_time, cached_df = self.ohlcv_cache[cache_key]
-            if now - cache_time < 15.0:
+            if now - cache_time < 30.0:
                 return cached_df
 
         if self.exchange and not self.binance_disabled:
@@ -514,7 +573,7 @@ class MarketDataEngine:
                 self.ohlcv_cache[cache_key] = (now, df)
                 return df
             except Exception as e:
-                logger.warning(f"[CIRCUIT_BREAKER] CCXT OHLCV fetch failed for {symbol} ({timeframe}): {e}. Disabling external calls for 10 min.")
+                logger.debug(f"[CIRCUIT_BREAKER] CCXT OHLCV fetch failed for {symbol} ({timeframe}): {e}.")
                 self.binance_disabled = True
                 self.last_binance_error = now
 
@@ -535,9 +594,11 @@ class MarketDataEngine:
 
         timestamps = [now_ms - (limit - i) * interval_ms for i in range(limit)]
 
-        np.random.seed(int(time.time()) % 100000 + hash(symbol + timeframe) % 1000)
-        returns = np.random.normal(0.0002, 0.006, limit)
-        price_series = base_price * np.exp(np.cumsum(returns))
+        np.random.seed(int(time.time() / 60) + (hash(symbol + timeframe) % 10000))
+        returns = np.random.normal(0.0001, 0.004, limit)
+        cum_ret = np.cumsum(returns)
+        cum_ret = cum_ret - cum_ret[-1]
+        price_series = base_price * np.exp(cum_ret)
 
         data = []
         for i in range(limit):
@@ -694,4 +755,6 @@ class MarketDataEngine:
             "trend": trend,
             "technical_score": 50.0  # Will be dynamically computed by AI Engine 2.0 in ai_strategy.py
         }
+
+market_engine = MarketDataEngine()
 

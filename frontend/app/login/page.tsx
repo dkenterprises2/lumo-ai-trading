@@ -27,8 +27,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4 py-12">
-      <div className="w-full max-w-md bg-slate-900/80 border border-slate-800 rounded-2xl p-8 shadow-2xl backdrop-blur-xl">
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 px-4 py-12" suppressHydrationWarning>
+      <div className="w-full max-w-md bg-slate-900/80 border border-slate-800 rounded-2xl p-8 shadow-2xl backdrop-blur-xl" suppressHydrationWarning>
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-cyan-500/10 text-cyan-400 mb-4 border border-cyan-500/20">
             <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -48,7 +48,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        <form onSubmit={handleSubmit} className="space-y-5" suppressHydrationWarning>
           <div>
             <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
               Email Address
@@ -56,6 +56,7 @@ export default function LoginPage() {
             <input
               type="email"
               required
+              autoComplete="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="trader@example.com"
@@ -75,6 +76,7 @@ export default function LoginPage() {
             <input
               type="password"
               required
+              autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
@@ -110,7 +112,38 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-8 text-center text-sm text-slate-400">
+        {/* Quick 1-Click Login Shortcuts */}
+        <div className="mt-6 pt-5 border-t border-slate-800/80 space-y-2">
+          <div className="text-[11px] font-mono text-slate-400 text-center uppercase tracking-wider">
+            Quick 1-Click Demo Login
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('usera@example.com');
+                setPassword('password123');
+              }}
+              className="px-3 py-2 bg-slate-950/80 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 rounded-xl text-xs text-cyan-300 font-mono transition text-left"
+            >
+              <div className="font-bold">⚡ Demo Trader</div>
+              <div className="text-[10px] text-slate-400 truncate">usera@example.com</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEmail('kumardharma7889@gmail.com');
+                setPassword('password123');
+              }}
+              className="px-3 py-2 bg-slate-950/80 hover:bg-slate-800 border border-slate-800 hover:border-indigo-500/40 rounded-xl text-xs text-indigo-300 font-mono transition text-left"
+            >
+              <div className="font-bold">👑 Admin Account</div>
+              <div className="text-[10px] text-slate-400 truncate">kumardharma...</div>
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 text-center text-sm text-slate-400">
           Don't have an account?{' '}
           <Link href="/register" className="text-cyan-400 font-semibold hover:underline">
             Create an account

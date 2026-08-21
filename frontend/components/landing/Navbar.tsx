@@ -29,8 +29,8 @@ export default function Navbar() {
         <div className="flex items-center gap-4">
           {user ? (
             <>
-              <Link href="/copilot" className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg shadow-indigo-600/30">
-                Copilot Workstation
+              <Link href="/dashboard" className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-lg shadow-indigo-600/30">
+                Dashboard
               </Link>
               <button onClick={logout} className="text-sm font-medium text-gray-400 hover:text-red-400 transition-colors">
                 Sign Out

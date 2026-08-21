@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 import time
 import logging
 from pathlib import Path
@@ -13,6 +14,30 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 # Remove default loguru handler
 logger.remove()
+
+SENSITIVE_PATTERNS = [
+    (re.compile(r'(?i)(token=)([a-zA-Z0-9_\-\.]{10,})'), r'\1[REDACTED]'),
+    (re.compile(r'(?i)(bearer\s+)([a-zA-Z0-9_\-\.]{10,})'), r'\1[REDACTED]'),
+    (re.compile(r'(?i)(jwt=)([a-zA-Z0-9_\-\.]{10,})'), r'\1[REDACTED]'),
+    (re.compile(r'(?i)(authorization:\s*)([^\r\n,;]+)'), r'\1[REDACTED]'),
+    (re.compile(r'(?i)("?(?:password|api_key|secret|access_token|refresh_token|auth_token|client_secret)"?\s*[:=]\s*["\']?)([^"\'&\s,;]{4,})(["\']?)'), r'\1[REDACTED]\3'),
+    (re.compile(r'(/ws/stream\?token=)[^\s"\'&>]+'), r'\1[REDACTED]'),
+    (re.compile(r'(/ws\?token=)[^\s"\'&>]+'), r'\1[REDACTED]')
+]
+
+def sanitize_sensitive_data(message: str) -> str:
+    """Sanitizes sensitive tokens, JWTs, credentials, and passwords from logs."""
+    if not isinstance(message, str):
+        message = str(message)
+    for pattern, repl in SENSITIVE_PATTERNS:
+        message = pattern.sub(repl, message)
+    return message
+
+def _redacting_patcher(record):
+    """Loguru record patcher ensuring no credentials are ever logged."""
+    record["message"] = sanitize_sensitive_data(record["message"])
+
+logger = logger.patch(_redacting_patcher)
 
 # 1. Console Handler (Colorized, Human-readable)
 CONSOLE_FORMAT = (
@@ -53,9 +78,11 @@ class InterceptHandler(logging.Handler):
         if record.name in ("asyncio", "urllib3", "aiosqlite", "sqlite3") and record.levelno < logging.INFO:
             return
 
-        msg = record.getMessage()
-        if "functools.partial" in msg or "PRAGMA main." in msg or "sqlite3.Cursor" in msg or "sqlite3.Connection" in msg:
+        raw_msg = record.getMessage()
+        if "functools.partial" in raw_msg or "PRAGMA main." in raw_msg or "sqlite3.Cursor" in raw_msg or "sqlite3.Connection" in raw_msg:
             return
+
+        msg = sanitize_sensitive_data(raw_msg)
 
         try:
             level = logger.level(record.levelname).name
@@ -107,6 +134,7 @@ def log_execution_latency(operation: str, latency_ms: float):
 
 __all__ = [
     "logger",
+    "sanitize_sensitive_data",
     "log_trade",
     "log_signal",
     "log_ai_reasoning",

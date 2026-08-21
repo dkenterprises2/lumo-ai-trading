@@ -12,6 +12,23 @@ from backend.ai_copilot.reports.executive_briefing import executive_briefing_eng
 
 router = APIRouter(tags=["Enterprise AI Copilot, Natural Language Trading & Autonomous Operations"])
 
+@router.post("/api/copilot/chat")
+async def chat_with_copilot(
+    body: Dict[str, Any],
+    current_user: Optional[UserModel] = Depends(get_optional_current_user)
+):
+    """Conversational quantitative copilot chat endpoint."""
+    user_id = current_user.id if current_user else 1
+    query = body.get("query", body.get("message", "Explain my portfolio risk"))
+    workspace_id = body.get("workspace_id", "default")
+    history = body.get("history", [])
+    return await copilot_service.process_chat_async(
+        query=query,
+        user_id=user_id,
+        workspace_id=workspace_id,
+        history=history
+    )
+
 @router.get("/api/portfolio-assistant/summary")
 async def get_portfolio_assistant_summary(current_user: Optional[UserModel] = Depends(get_optional_current_user)):
     user_id = current_user.id if current_user else 1

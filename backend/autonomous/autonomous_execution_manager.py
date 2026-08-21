@@ -14,9 +14,9 @@ from backend.arbitrage import ExchangePriceCollector, SpreadDetector
 
 logger = logging.getLogger("autonomous_execution_manager")
 
-class MockUserTrader:
-    """Mock trader portfolio wrapper for Phase 34 risk engine integration."""
-    def __init__(self, user_id: str = "user-p41", usdt_balance: float = 100000.0):
+class AutonomousPortfolioAdapter:
+    """Portfolio state adapter connecting AutonomousExecutionManager with database portfolio state."""
+    def __init__(self, user_id: str = "user-1", usdt_balance: float = 10000.0):
         self.user_id = user_id
         self.usdt_balance = usdt_balance
         self.initial_balance = usdt_balance
@@ -25,6 +25,23 @@ class MockUserTrader:
         self.peak_equity = usdt_balance
         self.max_open_positions = 10
         self.default_leverage = 1
+        self._load_from_db()
+
+    def _load_from_db(self):
+        try:
+            import sqlite3
+            conn = sqlite3.connect("lumo_trading.db", timeout=30.0)
+            conn.execute("PRAGMA journal_mode = WAL;")
+            conn.execute("PRAGMA busy_timeout = 30000;")
+            cursor = conn.cursor()
+            row = cursor.execute("SELECT usdt_balance, initial_balance FROM portfolio LIMIT 1").fetchone()
+            if row:
+                self.usdt_balance = float(row[0])
+                self.initial_balance = float(row[1])
+                self.peak_equity = self.usdt_balance
+            conn.close()
+        except Exception:
+            pass
 
     def get_portfolio_summary(self, prices=None):
         return {
@@ -104,7 +121,7 @@ class AutonomousExecutionManager:
         self.collector = ExchangePriceCollector()
         self.detector = SpreadDetector()
         self.metrics_tracker = AutonomousMetricsTracker()
-        self.trader = MockUserTrader()
+        self.trader = AutonomousPortfolioAdapter()
 
         self.executions: Dict[str, ExecutionRecord] = {}
         self.state_machines: Dict[str, ExecutionStateMachine] = {}

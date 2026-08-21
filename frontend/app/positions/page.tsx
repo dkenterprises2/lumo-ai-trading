@@ -16,7 +16,7 @@ export default function PositionsPage() {
   const portfolioQuery = useQuery({ queryKey: ["portfolio"], queryFn: fetchPortfolio, refetchInterval: 5000 });
   const newsQuery = useQuery({ queryKey: ["news-sentiment"], queryFn: fetchNewsSentiment, refetchInterval: 300000 });
 
-  const currentPortfolio = stream.isConnected && stream.portfolio ? stream.portfolio : portfolioQuery.data ?? null;
+  const currentPortfolio = stream.portfolio ?? portfolioQuery.data ?? null;
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 selection:bg-cyan-500/30">
@@ -27,7 +27,13 @@ export default function PositionsPage() {
           <div className="flex items-center justify-between">
             <h1 className="text-xl font-bold tracking-tight text-slate-100">Active Open Positions</h1>
           </div>
-          <ActivePositionsTable positions={currentPortfolio?.active_positions ?? []} onAction={(sym, act) => handlePositionAction({ symbol: sym, action: act, ratio: act === "PARTIAL_CLOSE" ? 0.5 : undefined })} />
+          <ActivePositionsTable
+            positions={currentPortfolio?.active_positions ?? []}
+            onAction={async (sym, act) => {
+              await handlePositionAction({ symbol: sym, action: act, ratio: act === "PARTIAL_CLOSE" ? 0.5 : undefined });
+              portfolioQuery.refetch();
+            }}
+          />
         </main>
         <Footer dbSyncStatus={currentPortfolio?.database_sync_status} lastValidationTime={currentPortfolio?.last_validation_time} connectionState={stream.connectionState} />
       </div>

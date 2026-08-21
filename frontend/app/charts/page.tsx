@@ -19,7 +19,7 @@ export default function ChartsPage() {
   const marketQuery = useQuery({ queryKey: ["market-summary", symbol, timeframe], queryFn: () => fetchMarketSummary(symbol, timeframe), refetchInterval: 10000 });
   const newsQuery = useQuery({ queryKey: ["news-sentiment"], queryFn: fetchNewsSentiment, refetchInterval: 300000 });
 
-  const currentPortfolio = stream.isConnected && stream.portfolio ? stream.portfolio : portfolioQuery.data ?? null;
+  const currentPortfolio = stream.portfolio ?? portfolioQuery.data ?? null;
   const currentPrice = stream.isConnected ? stream.livePrices[symbol] ?? marketQuery.data?.current_price ?? null : marketQuery.data?.current_price ?? null;
 
   return (

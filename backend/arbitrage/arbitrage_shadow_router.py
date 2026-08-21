@@ -7,6 +7,7 @@ class ArbitrageShadowRouter:
 
     def __init__(self):
         self.simulator = ArbitrageExecutionSimulator()
+        self.collector = self.simulator.collector
         self.risk_filter = ArbitrageRiskFilter()
         self.history = []
 
@@ -20,7 +21,8 @@ class ArbitrageShadowRouter:
         net_spread_pct: float,
         amount_usd: float = 10000.0,
         quote_status: str = "FRESH",
-        data_age_ms: float = 0.0
+        data_age_ms: float = 0.0,
+        revalidate_live: bool = False
     ) -> Dict[str, Any]:
         risk_res = self.risk_filter.evaluate_opportunity_risk(net_spread_pct=net_spread_pct)
         if not risk_res.passed:
@@ -34,7 +36,8 @@ class ArbitrageShadowRouter:
             sell_price=sell_price,
             amount_usd=amount_usd,
             quote_status=quote_status,
-            data_age_ms=data_age_ms
+            data_age_ms=data_age_ms,
+            revalidate_live=revalidate_live
         )
         self.history.append(exec_res)
 

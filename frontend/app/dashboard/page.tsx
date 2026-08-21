@@ -8,7 +8,7 @@ import { Footer } from "@/components/layout/Footer";
 import { useTradingStream } from "@/hooks/useTradingStream";
 import { useQuery } from "@tanstack/react-query";
 import { fetchPortfolio, fetchNewsSentiment, fetchScannerSummary, toggleBot, setStrategy, handlePositionAction } from "@/services/api";
-import { Bot, LineChart, ShieldAlert, Scan, Crosshair, TrendingUp, Cpu, Award } from "lucide-react";
+import { Bot, LineChart, ShieldAlert, Scan, Crosshair, TrendingUp, Cpu, Award, Sparkles, Flame } from "lucide-react";
 import { BottomTabsPanel } from "@/components/terminal/BottomTabsPanel";
 
 import { useAuth } from "@/context/AuthContext";
@@ -28,7 +28,7 @@ export default function InstitutionalDashboardPage() {
   const newsQuery = useQuery({ queryKey: ["news-sentiment"], queryFn: fetchNewsSentiment, refetchInterval: 300000 });
   const scannerQuery = useQuery({ queryKey: ["scanner-summary"], queryFn: fetchScannerSummary, refetchInterval: 5000 });
 
-  const currentPortfolio = stream.isConnected && stream.portfolio ? stream.portfolio : portfolioQuery.data ?? null;
+  const currentPortfolio = stream.portfolio ?? portfolioQuery.data ?? null;
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100 selection:bg-cyan-500/30">
@@ -41,7 +41,11 @@ export default function InstitutionalDashboardPage() {
               <h1 className="text-2xl font-bold tracking-tight text-white">Institutional AI Quantitative Workstation</h1>
               <p className="text-xs text-gray-400 mt-1">Autonomous Execution, Portfolio Optimization &amp; Enterprise AI Copilot v4.0</p>
             </div>
-            <div className="flex space-x-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <Link href="/scanner" className="bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 text-white font-semibold text-xs px-4 py-2 rounded-xl transition-all shadow-lg shadow-cyan-500/20 flex items-center gap-2 border border-cyan-400/30">
+                <Sparkles className="w-4 h-4 text-amber-300" /> Spot &amp; Meme Research
+                <span className="px-1.5 py-0.2 rounded bg-amber-400/20 text-amber-300 text-[10px] font-bold">NEW</span>
+              </Link>
               <Link href="/copilot" className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs px-4 py-2 rounded-xl transition-all shadow-lg shadow-indigo-600/20 flex items-center gap-2">
                 <Bot className="w-4 h-4" /> Open AI Copilot
               </Link>
@@ -124,7 +128,7 @@ export default function InstitutionalDashboardPage() {
             <div className="lg:col-span-1">
               <SubscriptionLimitsCard
                 userPlan={user?.plan || user?.plan_tier || "INSTITUTIONAL"}
-                activePositionsCount={currentPortfolio?.active_positions?.length || 0}
+                activePositionsCount={Array.isArray(currentPortfolio?.active_positions) ? currentPortfolio.active_positions.length : (currentPortfolio?.active_positions ? Object.keys(currentPortfolio.active_positions).length : 0)}
                 onPreferencesUpdated={() => portfolioQuery.refetch()}
               />
             </div>

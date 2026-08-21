@@ -7,13 +7,15 @@ from .spread_detector import SpreadDetector, ArbitrageSpread
 from .funding_rate_collector import FundingRateCollector, FundingRateInfo
 from .basis_spread_engine import BasisSpreadEngine, BasisOpportunity
 from .triangular_arbitrage_engine import TriangularArbitrageEngine, TriangularOpportunity
-from .cross_exchange_arbitrage_engine import CrossExchangeArbitrageEngine, CrossExchangeOpportunity
+from .cross_exchange_arbitrage_engine import CrossExchangeArbitrageEngine, CrossExchangeOpportunity, cross_exchange_engine
 from .arbitrage_opportunity_ranker import ArbitrageOpportunityRanker
 from .arbitrage_risk_filter import ArbitrageRiskFilter
 from .arbitrage_execution_simulator import ArbitrageExecutionSimulator
 from .arbitrage_shadow_router import ArbitrageShadowRouter
 from .arbitrage_metrics import ArbitrageMetricsTracker
 from .arbitrage_governance import ArbitrageGovernance
+from .background_scanner import ArbitrageBackgroundScanner, arbitrage_background_scanner
+from .arbitrage_evidence_store import ArbitrageForensicEvent, ArbitrageEvidenceStore, arbitrage_evidence_store
 
 __all__ = [
     "ExchangePriceCollector",
@@ -32,5 +34,10 @@ __all__ = [
     "ArbitrageExecutionSimulator",
     "ArbitrageShadowRouter",
     "ArbitrageMetricsTracker",
-    "ArbitrageGovernance"
+    "ArbitrageGovernance",
+    "ArbitrageBackgroundScanner",
+    "arbitrage_background_scanner",
+    "ArbitrageForensicEvent",
+    "ArbitrageEvidenceStore",
+    "arbitrage_evidence_store"
 ]
